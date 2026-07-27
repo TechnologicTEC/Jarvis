@@ -386,9 +386,9 @@ def movers(limit: int = 3) -> dict:
 
     parts = []
     if ups:
-        parts.append(f"Up: {fmt(ups)}")
+        parts.append(f"Gainers: {fmt(ups)}")
     if downs:
-        parts.append(f"Down: {fmt(list(reversed(downs)))}")
+        parts.append(f"Fallers: {fmt(list(reversed(downs)))}")
     green, red = len(ups), len(downs)
     parts.append(f"{green} up, {red} down of {len(ranked)}")
     return {"ok": True, "intent": "stocks", "reply": " · ".join(parts),
@@ -563,7 +563,7 @@ def creator_leaderboard(limit: int = 5) -> dict:
     def label(r):
         t = r.get("ticker")
         n = r.get("mentions") or r.get("count") or r.get("videos")
-        return f"{t} ×{n}" if n else str(t)
+        return f"{t} {n} mentions" if n else str(t)
 
     return {"ok": True, "intent": "stocks", "rows": rows,
             "reply": "Creator mentions — " + ", ".join(label(r) for r in top)}

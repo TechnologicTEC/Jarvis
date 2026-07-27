@@ -13,7 +13,9 @@ point of routing these away from a 3B local model.
 """
 import datetime
 import html
+import os
 import re
+import threading
 import urllib.parse
 
 import requests
@@ -135,6 +137,64 @@ def weather(place: str = None) -> dict:
 # Search
 # --------------------------------------------------------------------------
 
+def _tavily_key() -> str:
+    key = config.get("web", "tavily_api_key", default="") or ""
+    return os.environ.get("TAVILY_API_KEY", "") if not key else key
+
+
+def _tavily(query: str):
+    """Tavily — a search API built for exactly this job.
+
+    The difference that matters: it returns *extracted page content* and often
+    a direct answer, where DuckDuckGo gives ~30-word snippets. The grounding
+    step is only as good as the text it's handed, and snippets are where
+    "who invented the telephone" used to fail. Free tier; needs a key, so this
+    is skipped silently when one isn't configured.
+    """
+    key = _tavily_key()
+    if not key:
+        return None
+    try:
+        from tavily import TavilyClient
+        r = TavilyClient(api_key=key).search(
+            query=query, search_depth="basic", include_answer=True,
+            max_results=4)
+    except Exception:
+        return None
+
+    answer = (r.get("answer") or "").strip()
+    passages = []
+    for item in (r.get("results") or [])[:4]:
+        body = (item.get("content") or "").strip()
+        if body:
+            passages.append(f"{item.get('title', '')}: {body}")
+    if not answer and not passages:
+        return None
+    return {"answer": answer, "text": "\n\n".join(passages),
+            "source": "Tavily", "url": ((r.get("results") or [{}])[0].get("url", ""))}
+
+
+def _ddgs(query: str):
+    """DuckDuckGo via the maintained client, rather than scraping the HTML
+    endpoint with regexes that break whenever the markup shifts."""
+    try:
+        try:
+            from ddgs import DDGS
+        except Exception:
+            from duckduckgo_search import DDGS
+        with DDGS() as ddg:
+            hits = list(ddg.text(query, max_results=5))
+    except Exception:
+        return None
+    out = []
+    for h in hits:
+        title = (h.get("title") or "").strip()
+        body = (h.get("body") or "").strip()
+        if title and body and not _SPAM.search(title):
+            out.append({"title": title, "snippet": body})
+    return out or None
+
+
 def _instant_answer(query: str):
     """DuckDuckGo's Instant Answer API — boxed facts, no key, no scraping."""
     try:
@@ -243,7 +303,10 @@ def _ground(query: str, context: str):
             "Answer the question using ONLY the reference text below. "
             "One or two short sentences. If the reference does not contain the "
             "answer, reply exactly: NOT FOUND.\n\n"
-            f"Reference:\n{context[:2400]}\n\nQuestion: {query}\nAnswer:"
+            # Keep the passage short: on a 3B CPU model the answer time scales
+            # with how much it has to read, and the answer is almost always in
+            # the first passage anyway.
+            f"Reference:\n{context[:1400]}\n\nQuestion: {query}\nAnswer:"
         )
         out = (out or "").strip()
         if not out or out.lower().startswith("local model error"):
@@ -269,11 +332,40 @@ def search(query: str) -> dict:
     # picks the right *topic* but often not the answer — Wikipedia returns the
     # "Telephone" article for "who invented the telephone", while the search
     # snippets name Bell. Pooling them lets the grounding step choose.
-    hit = _instant_answer(query)
-    wiki = _wikipedia(query)
-    results = _html_search(query)
+    # Fetch every source at once. Run in sequence these were 6s+ of stacked
+    # round trips before the model had even seen the text.
+    out = {}
+
+    def run(name, fn):
+        try:
+            out[name] = fn(query)
+        except Exception:
+            out[name] = None
+
+    jobs = [threading.Thread(target=run, args=(n, f), daemon=True) for n, f in
+            (("tavily", _tavily), ("instant", _instant_answer),
+             ("wiki", _wikipedia), ("ddgs", _ddgs))]
+    for j in jobs:
+        j.start()
+    for j in jobs:
+        j.join(timeout=_TIMEOUT + 2)
+
+    tav = out.get("tavily")
+    # Tavily when configured: it returns extracted page text and often a
+    # direct answer, which is far better grounding material than snippets.
+    if tav and tav.get("answer"):
+        return {"ok": True, "intent": "web",
+                "reply": tav["answer"] + " (Tavily)",
+                "url": tav.get("url", ""), "source": "Tavily", "grounded": True}
+
+    hit = out.get("instant")
+    wiki = out.get("wiki")
+    results = out.get("ddgs") or _html_search(query)
 
     parts, source, url = [], "", ""
+    if tav and tav.get("text"):
+        parts.append(tav["text"])
+        source, url = "Tavily", tav.get("url", "")
     if hit:
         parts.append(hit["text"])
         source, url = hit.get("source", ""), hit.get("url", "")

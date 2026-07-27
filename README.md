@@ -222,9 +222,19 @@ all of it is free and key-less:
   `web.weather_location` for the default. Asking for Auckland used to answer
   for "Newton" — wttr.in reports the nearest *weather station*, so it named a
   suburb; Open-Meteo geocodes the place you asked for.
-- **everything else** pools DuckDuckGo's Instant Answer API, Wikipedia, and
-  DuckDuckGo's HTML results, then has the local model answer **from that
-  fetched text only**.
+- **everything else** pools **Tavily** (if a key is set), DuckDuckGo's Instant
+  Answer API, Wikipedia and DuckDuckGo results — all four fetched **in
+  parallel** — then has the local model answer **from that fetched text only**.
+
+**Tavily is the recommended upgrade.** It's a search API built for this job:
+it returns extracted page *content* and often a direct answer, where
+DuckDuckGo gives ~30-word snippets — and snippets are exactly what the
+grounding step runs short of. Get a free key at
+[tavily.com](https://tavily.com) and put it in `web.tavily_api_key` (or the
+`TAVILY_API_KEY` environment variable). When Tavily returns a direct answer
+the local model is skipped entirely, so those replies are near-instant.
+
+Without a key everything still works — Tavily is skipped silently.
 
 That last step matters. Retrieval alone finds the right topic but often not the
 answer — Wikipedia returns the "Telephone" article for "who invented the
@@ -292,6 +302,32 @@ It is **off by default on purpose**: it holds the microphone open the whole
 time it runs. Audio is fed frame by frame into the local model and discarded —
 nothing is recorded, stored or sent anywhere — and the wake listener releases
 the mic before the real capture starts, so the two never fight over the device.
+
+### What it says vs what it shows
+
+Replies are written to be *read*: `AXSM +3.7% · NVDA ×8 · $8,989`. Fed straight
+to a speech engine that came out as "A X S M **plus** three point seven percent
+**middle dot** N V D A **times** eight" — the stray "times" and "plus" were
+symbols being pronounced, not words anyone wrote. `speech_text()` rewrites the
+line for the ear only; the screen keeps the compact version:
+
+| On screen | Spoken |
+|---|---|
+| `+3.7%` / `-5.0%` | "up 3.7 percent" / "down 5 percent" |
+| `NVDA ×8` | "NVDA, 8 mentions" |
+| `-$127.19` | "down 127.19 dollars" |
+| `·` `—` `\|` | a pause |
+| `5–12°C` | "5 to 12 degrees" |
+| `2026-07-26` | "26 July 2026" |
+| `#1`, `S&P` | "number 1", "S and P" |
+
+### Voice
+
+Default is `en-US-AndrewNeural` — one of Microsoft's newer conversational
+voices, which sound markedly less synthetic than the older set (the previous
+`en-AU-WilliamNeural` among them). Others worth trying, via `voice.edge_voice`:
+`en-US-BrianNeural` (casual), `en-US-EmmaNeural` (clear), `en-US-AvaNeural`
+(expressive).
 
 ### Why speech-out isn't instant
 

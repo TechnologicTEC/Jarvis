@@ -219,8 +219,85 @@ def _tts_engine() -> str:
     return config.get("voice", "tts", default="edge-tts")
 
 
+# Microsoft's newer conversational voices sound markedly less synthetic than
+# the older "Friendly/Positive" set (en-AU-William, en-GB-Ryan and friends).
+# Worth trying if Andrew isn't to taste:
+#   en-US-AndrewNeural  warm, confident      (default)
+#   en-US-BrianNeural   approachable, casual
+#   en-US-EmmaNeural    cheerful, clear
+#   en-US-AvaNeural     expressive, caring
+NATURAL_VOICES = ["en-US-AndrewNeural", "en-US-BrianNeural",
+                  "en-US-EmmaNeural", "en-US-AvaNeural",
+                  "en-AU-WilliamMultilingualNeural", "en-GB-SoniaNeural"]
+
+
 def _voice_name() -> str:
-    return config.get("voice", "edge_voice", default="en-AU-WilliamNeural")
+    return config.get("voice", "edge_voice", default="en-US-AndrewNeural")
+
+
+# --------------------------------------------------------------------------
+# Turning display text into something worth listening to.
+#
+# Replies are written to be *read*: "AXSM +3.7% · NVDA ×8 · $8,989". Handed
+# straight to a speech engine that becomes "A X S M plus three point seven
+# percent middle dot N V D A times eight" — the stray "times" and "plus"
+# are the symbols being read literally, not words anyone wrote.
+# --------------------------------------------------------------------------
+
+_NUM = r"\d(?:[\d,]*\d)?(?:\.\d+)?"     # 8,989 / 1,445 / 3.7 — never a trailing comma
+
+_MONTHS = ("January", "February", "March", "April", "May", "June", "July",
+           "August", "September", "October", "November", "December")
+
+
+def _spoken_date(m):
+    try:
+        return f"{int(m.group(3))} {_MONTHS[int(m.group(2)) - 1]} {m.group(1)}"
+    except Exception:
+        return m.group(0)
+
+
+_SPEECH_RULES = [
+    # ISO dates before the range rule, or 2026-07-26 becomes "2026 to 07 to 26"
+    (re.compile(r"\b(\d{4})-(\d{2})-(\d{2})\b"), _spoken_date),
+    # ranges before dashes become pauses: "5–12°C" is "5 to 12", not "5, 12"
+    (re.compile(r"(\d)\s*[–—-]\s*(\d)"), r"\1 to \2"),
+    # degrees
+    (re.compile(r"°\s*C\b"), " degrees"),
+    (re.compile(r"°"), " degrees"),
+    # signed percentages read as direction, not arithmetic
+    (re.compile(r"\+(" + _NUM + r")\s*%"), r"up \1 percent"),
+    (re.compile(r"[-−](" + _NUM + r")\s*%"), r"down \1 percent"),
+    (re.compile(r"(" + _NUM + r")\s*%"), r"\1 percent"),
+    # "NVDA ×8" -> "NVDA, 8 mentions"  (this is where "times" came from)
+    (re.compile(r"\s*[×]\s*(\d+)"), r", \1 mentions"),
+    # money, sign first so it reads as a direction
+    (re.compile(r"[-−]\s*\$(" + _NUM + r")"), r"down \1 dollars"),
+    (re.compile(r"\+\s*\$(" + _NUM + r")"), r"up \1 dollars"),
+    (re.compile(r"\$(" + _NUM + r")"), r"\1 dollars"),
+    # separators become pauses rather than being pronounced
+    (re.compile(r"\s*[·•]\s*"), ", "),
+    (re.compile(r"\s*[—–]\s*"), ", "),
+    (re.compile(r"\s*\|\s*"), ", "),
+    (re.compile(r"#(\d+)"), r"number \1"),
+    (re.compile(r"\s*&\s*"), " and "),
+    (re.compile(r"[“”\"']"), ""),
+    # each item already says "up"/"down", so the heading just stutters aloud
+    (re.compile(r"\b(?:Gainers|Fallers|Up|Down):\s*"), ""),
+    # tidy up
+    (re.compile(r"(\d)\.0\b"), r"\1"),
+    (re.compile(r"\s{2,}"), " "),
+    (re.compile(r"(,\s*){2,}"), ", "),
+    (re.compile(r"\s+([,.])"), r"\1"),
+]
+
+
+def speech_text(text: str) -> str:
+    """Rewrite a reply so it sounds like a sentence when spoken."""
+    out = (text or "").strip()
+    for pattern, repl in _SPEECH_RULES:
+        out = pattern.sub(repl, out)
+    return out.strip(" ,").replace(" ,", ",")
 
 
 def speak(text: str) -> dict:
@@ -232,7 +309,7 @@ def speak(text: str) -> dict:
     edge-tts falls back to pyttsx3 on any failure, so replies still get spoken
     offline.
     """
-    text = (text or "").strip()
+    text = speech_text(text)
     if not text:
         return {"ok": False, "engine": None}
     if _tts_engine() == "edge-tts":
