@@ -35,10 +35,20 @@
       1180,
       760
     ],
-    "mini_size": [
-      470,
-      400
+    "compact_size": [
+      440,
+      150
     ],
-    "open_full_on_start": true
+    "open_full_on_start": true,
+    "quick_files": [
+      {
+        "label": "Tech_CV.pdf",
+        "path": "C:\\Users\\you\\OneDrive\\Tech_CV.pdf"
+      },
+      {
+        "label": "Internships.xlsx",
+        "path": "C:\\Users\\you\\OneDrive\\Internships.xlsx"
+      }
+    ]
   }
 }

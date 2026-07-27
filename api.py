@@ -40,6 +40,39 @@ class JarvisApi:
         except Exception as e:
             return {"ok": False, "setups": [], "reply": str(e)}
 
+    def infer_setup(self, description):
+        """'steam and discord' -> concrete launch actions, for the + New flow."""
+        try:
+            return actions.infer_items(description or "")
+        except Exception as e:
+            return {"ok": False, "items": [], "unresolved": [], "reply": str(e)}
+
+    def save_setup(self, name, items):
+        try:
+            return actions.save_setup(name, items or [])
+        except Exception as e:
+            return {"ok": False, "reply": f"Could not save — {e}"}
+
+    def delete_setup(self, name):
+        try:
+            return actions.delete_setup(name)
+        except Exception as e:
+            return {"ok": False, "reply": f"Could not delete — {e}"}
+
+    def get_setup(self, name):
+        return actions.get_setup(name)
+
+    def list_installed_apps(self, term=""):
+        """Installed apps, optionally filtered — powers the app picker."""
+        try:
+            apps = actions.installed_apps()
+            t = (term or "").strip().lower()
+            if t:
+                apps = [a for a in apps if t in a["name"].lower()]
+            return {"ok": True, "apps": apps[:40], "total": len(apps)}
+        except Exception as e:
+            return {"ok": False, "apps": [], "reply": str(e)}
+
     def open_setups_file(self):
         try:
             actions.open_config()
@@ -48,20 +81,35 @@ class JarvisApi:
             return {"ok": False, "reply": f"Error — {e}"}
 
     # ---- window control ----
-    def open_full(self):
-        windows.show_full()
+    def set_layout(self, mode):
+        """Switch the single window between 'full' and 'compact'."""
+        return {"ok": True, "mode": windows.set_mode(mode, announce=False)}
+
+    def toggle_layout(self):
+        return {"ok": True, "mode": windows.toggle_mode()}
+
+    def set_compact_height(self, h):
+        """The compact card reports its rendered height so the window hugs it."""
+        return windows.set_compact_height(h)
+
+    def hide_window(self):
+        windows.hide()
         return {"ok": True}
 
+    def open_full(self):
+        windows.show("full")
+        return {"ok": True}
+
+    # kept so older call sites keep working
     def hide_full(self):
-        windows.hide_full()
+        windows.hide()
         return {"ok": True}
 
     def hide_mini(self):
-        windows.hide_mini()
+        windows.hide()
         return {"ok": True}
 
     def hotkey_active(self):
-        """False means the UI must offer its own way to dismiss the mini."""
         return {"ok": True, "active": bool(windows.HOTKEY_OK)}
 
     # ---- files ----
@@ -74,6 +122,31 @@ class JarvisApi:
         from skills import file_finder
         file_finder.reveal(path)
         return {"ok": True}
+
+    def quick_files(self):
+        """The pinned shortcuts beside the search bar — real files, not samples."""
+        import os
+        from core import config
+        out = []
+        for entry in (config.get("ui", "quick_files", default=[]) or []):
+            path = os.path.expandvars(entry.get("path", ""))
+            out.append({
+                "label": entry.get("label") or os.path.basename(path),
+                "path": path, "exists": os.path.isfile(path),
+            })
+        return {"ok": True, "files": out}
+
+    def open_file(self, path):
+        """Open a file in its default application (not Explorer)."""
+        import os
+        try:
+            p = os.path.expandvars(path or "")
+            if not os.path.isfile(p):
+                return {"ok": False, "reply": f"Not found: {os.path.basename(p)}"}
+            os.startfile(p)
+            return {"ok": True, "reply": f"Opening {os.path.basename(p)}"}
+        except Exception as e:
+            return {"ok": False, "reply": f"Could not open — {e}"}
 
     # ---- stocks ----
     def stocks_summary(self):
@@ -105,6 +178,18 @@ class JarvisApi:
             }
         except Exception as e:
             return {"ok": False, "reply": str(e), "applications": [], "pending": []}
+
+    def inbox_unseen(self):
+        from skills import email_tracker
+        try:
+            return {"ok": True, "unseen": email_tracker.unseen_count()}
+        except Exception:
+            return {"ok": True, "unseen": 0}
+
+    def inbox_mark_seen(self):
+        from skills import email_tracker
+        email_tracker.mark_seen()
+        return {"ok": True}
 
     def inbox_connect(self):
         """One-time OAuth consent. Opens the browser; user-initiated only."""

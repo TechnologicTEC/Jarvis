@@ -1,23 +1,57 @@
 # Jarvis — personal desktop assistant
 
-Three surfaces, one backend: the **full app** (nav rail: Ask / Files / Stocks /
-Inbox / Setups / Settings), the **mini popup** (double-`Esc`, always-on-top),
-and the **system tray** host that owns both. All input funnels through
-`core/router.py`. Full spec: `docs/jarvis_spec.md`.
+**One app, two sizes, one backend.** The full window is home base (nav rail:
+Ask / Files / Stocks / Inbox / Setups / Settings); double-space shrinks it to a
+pinned always-on-top console you can leave in the corner while you work. Both
+are the *same window* running the same page, so there is no state to keep in
+sync. A tray host keeps it alive and owns the global hotkey. All input funnels
+through `core/router.py`. Full spec: `docs/jarvis_spec.md`.
 
-## Run
+## Install
 
 ```powershell
 pip install -r requirements.txt
-python main.py          # opens the full app + tray icon
-python main.py --tray   # start silent in the tray (what autostart uses)
+powershell -ExecutionPolicy Bypass -File scripts\install.ps1
 ```
 
-- **Double-Esc** anywhere → mini popup (Esc again hides it; double-Esc inside a
-  Jarvis window hides that window).
-- Tray icon → Open Jarvis / Open Mini / Quit. Closing a window hides it to the
-  tray; only tray **Quit** exits.
-- `scripts\install_autostart.ps1` adds a Startup shortcut (`pythonw --tray`).
+That creates Desktop and Start Menu shortcuts (with a real icon — pin it to the
+taskbar if you like) and a Startup entry so Jarvis is already running, and the
+global hotkey already listening, when you log in. `scripts\install.ps1
+-Uninstall` removes all three; nothing else on the system is touched.
+
+**You don't need to publish anything.** Publishing to the Microsoft Store costs
+money and exists to distribute software to strangers — irrelevant for a personal
+tool. The shortcuts above give you the native-app experience (desktop icon,
+taskbar, autostart) with none of that. A standalone `Jarvis.exe` is possible
+later via PyInstaller; it's deferred because it would need rebuilding after
+every code change while the app is still growing.
+
+Running it manually, if you prefer:
+
+```powershell
+python main.py          # opens the window + tray icon
+python main.py --tray   # silent in the tray (what the Startup shortcut uses)
+```
+
+## The two sizes
+
+| | Full | Compact |
+|---|---|---|
+| Size | 1180×760, centred | ~440×158, bottom-right, always-on-top |
+| Shows | Everything — nav rail, tabs, composer | The command console only |
+| Switch to it | double-space, or `⇱` in the header | double-space, or the tray |
+
+The window is frameless in both (the design draws its own header), so the
+header is a `.pywebview-drag-region` — drag it to move the window. In compact
+mode the page reports its rendered height back to Python, which resizes the
+window to hug the card exactly, so there is no dead border around it.
+
+- **Double-Esc** anywhere summons Jarvis (or hides it if it's already in front).
+  It opens the app itself, not a separate popup — there is only one window now.
+- Double-space is ignored while you're mid-command, so typing two spaces in the
+  console never resizes the window.
+- Tray icon → Open Jarvis / Pin to corner / Hide / Quit. Closing hides to the
+  tray; only **Quit** exits.
 
 ## Configure
 
@@ -52,7 +86,8 @@ All six nav tabs are built and read from the live backend:
   with its day and lifetime move and a weight bar.
 - **Inbox** — states plainly that phase 7 isn't connected and what it needs.
 - **Setups** — every setup, what it launches, and a warning count if any
-  configured path no longer exists. Click to launch.
+  configured path no longer exists. Click to launch, or **create and edit them
+  in the app** (see below).
 - **Settings** — working toggles (voice, spoken replies, auto-listen, model
   preload) that write straight to `settings.json`, plus read-only status for
   Ollama, Everything, Stock_Project and Gmail.
@@ -83,15 +118,44 @@ Configure it under `stocks` in `settings.json` (`project_path`, `user_email`).
 Note `user_email` matters: the DB's bootstrap user (`local@localhost`) owns no
 holdings, so an unscoped read would look like an empty portfolio.
 
+## Creating setups without editing JSON
+
+**Setups → + new setup**, then describe it in plain language — *"discord and
+youtube"*, *"gaming: steam, twitch and spotify"*, *"vs code, chrome and
+github.com"*. Jarvis resolves each part into a real launch action and shows the
+result as chips you can remove before saving. **Edit** on any row reopens it
+with its current items; **✕** deletes (click twice to confirm).
+
+Resolution is deterministic first, and that ordering is deliberate: the
+description is split, then each part is matched against your **actually
+installed** apps (Start Menu shortcuts + Store apps — 186 on this machine),
+then against known sites, then treated as a URL if it looks like one. The local
+model is only ever asked to *split* a woolly description into names — it never
+supplies a path, so a hallucination can't produce a launcher that silently
+fails. Anything unresolved is reported rather than guessed at.
+
+Common shorthand is handled: `vs code` only scores 60 against "Visual Studio
+Code" by fuzzy matching, so there is an alias table, and weaker matches are
+accepted only when clearly ahead of the runner-up.
+
+## Quick files
+
+The chips beside the search bar are real files from `ui.quick_files` in
+`settings.json` — currently `Tech_CV.pdf` and `Internships.xlsx`. Click one to
+open it in its default app. A chip whose file is missing turns red and is
+marked `?` rather than failing silently when clicked.
+
 ## Voice
 
 Manual trigger, never always-on: the mic only opens when you ask for it.
 
-- **Mini popup** — the `listen` toggle (or Alt). Space stops recording early.
+- **Compact console** — the `listen` toggle (or Alt).
 - **Full app** — click the mic ring, or press Alt.
-- Recording ends automatically on ~1.2s of silence, capped at 15s, so nothing
-  holds the mic open. The transcript goes through the **same `route()`** as
-  typed text, and the reply is spoken back (`voice.speak_replies`).
+- **You don't press anything to send.** Recording ends by itself after ~1.2s of
+  silence, transcribes, routes and answers — one Alt to start, then just talk
+  and stop. It's capped at 15s so nothing holds the mic open. The transcript
+  goes through the **same `route()`** as typed text, and the reply is spoken
+  back (`voice.speak_replies`).
 - STT is `faster-whisper base.en` on CPU — local, free, offline. The ~140MB
   model downloads on first use into `models/` (gitignored).
 - TTS is edge-tts (free, no key, needs internet) with pyttsx3 as the offline
@@ -133,6 +197,10 @@ your tracker* — by sender domain first, then by the company being named — an
 then against outcome wording (offer / interview / rejected / acknowledged).
 Bulk senders (LinkedIn, Seek, Indeed, newsletters) are dropped first. Jarvis
 never invents a company: no tracker match means no suggestion.
+
+The **Inbox dot in the nav rail means "something changed you haven't seen"** —
+it only lights when there are unseen detections, and clears when you open the
+tab. It is not a decoration that is always on.
 
 **Nothing is written without you.** A detection only ever produces a
 `Kami — interview  [log it]` card. The Excel write happens on that click (or

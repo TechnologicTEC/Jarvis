@@ -4,6 +4,7 @@ Run:  python main.py           (opens the full app + tray)
       python main.py --tray    (starts silent in the tray; used by autostart)
 """
 import argparse
+import os
 import threading
 import time
 
@@ -20,6 +21,13 @@ HOTKEY = None
 
 
 def _tray_image():
+    """Use the real app icon so the tray matches the shortcuts."""
+    ico = os.path.join(os.path.dirname(os.path.abspath(__file__)), "assets", "jarvis.ico")
+    if os.path.isfile(ico):
+        try:
+            return Image.open(ico)
+        except Exception:
+            pass
     img = Image.new("RGBA", (64, 64), (0, 0, 0, 0))
     d = ImageDraw.Draw(img)
     d.rounded_rectangle((4, 4, 60, 60), radius=16, fill=(92, 198, 232, 255))
@@ -34,8 +42,9 @@ def _quit(icon, _item):
 
 def _build_tray():
     menu = pystray.Menu(
-        pystray.MenuItem("Open Jarvis", lambda i, it: windows.show_full(), default=True),
-        pystray.MenuItem("Open Mini", lambda i, it: windows.show_mini()),
+        pystray.MenuItem("Open Jarvis", lambda i, it: windows.show("full"), default=True),
+        pystray.MenuItem("Pin to corner", lambda i, it: windows.show("compact")),
+        pystray.MenuItem("Hide", lambda i, it: windows.hide()),
         pystray.Menu.SEPARATOR,
         pystray.MenuItem("Quit", _quit),
     )

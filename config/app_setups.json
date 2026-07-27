@@ -5,8 +5,7 @@
     { "type": "app", "path": "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe" }
   ],
   "study": [
-    { "type": "url", "target": "https://canvas.instructure.com", "browser": "chrome" },
-    { "type": "app", "path": "notepad.exe" }
+    { "type": "url", "target": "canvas.auckland.ac.nz", "browser": "chrome" }
   ],
   "chill": [
     { "type": "url", "target": "https://youtube.com", "browser": "chrome" }

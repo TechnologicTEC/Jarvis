@@ -251,9 +251,24 @@ def check_replies(max_results=40) -> dict:
 _pending: list = []
 
 
+_seen_ids: set = set()
+
+
 def set_pending(hits):
     global _pending
     _pending = list(hits or [])
+
+
+def unseen_count() -> int:
+    """Detections the user hasn't looked at — drives the Inbox badge, which
+    should mean 'something changed' rather than 'this tab exists'."""
+    return sum(1 for h in _pending if h.get("id") not in _seen_ids)
+
+
+def mark_seen():
+    for h in _pending:
+        if h.get("id"):
+            _seen_ids.add(h["id"])
 
 
 def get_pending() -> list:

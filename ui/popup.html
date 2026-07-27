@@ -34,10 +34,50 @@ input::placeholder{color:#4f5b80}
 .jv-hint{font:400 11px/1.5 'JetBrains Mono',monospace;color:#6f81b5}
 .jv-tog{cursor:pointer;user-select:none}
 .jv-tog:hover{border-color:rgba(92,198,232,.5)!important}
+/* compact mode: the whole app collapses to the pinned console. The window is
+   resized to hug #jc-card exactly, so there must be no margin around it. */
+/* !important: #jv-root carries an inline display:flex from the design, which
+   would otherwise win over this rule and leave the full app rendered
+   underneath the compact card. */
+body.compact #jv-root{display:none!important}
+body.compact #jc-wrap{display:block}
+#jc-wrap{display:none}
+body.compact,body.compact html{background:transparent!important;overflow:hidden}
+.jc-item:hover{background:#111a30}
+#jc-setup-btn:hover,#jc-mode:hover{border-color:#5cc6e8;color:#8fdcf2}
+@keyframes jcbar{0%,100%{transform:scaleY(.28)}50%{transform:scaleY(1)}}
 </style>
 </head>
 <body>
-<div style="position:fixed;inset:0;box-sizing:border-box;background:#070d20;font-family:'Space Grotesk',sans-serif;display:flex;overflow:hidden">
+
+<!-- ============================ COMPACT MODE ============================
+     The same app, shrunk to a pinned console. The window is sized to this
+     card exactly (see jarvisSetLayout -> api.set_compact_size), which is why
+     there is no wrapper background here — any padding would show as dead
+     space around the card. -->
+<div id="jc-wrap">
+<div id="jc-card" style="width:100%;box-sizing:border-box;background:#070d20;border:1px solid #1c2650;border-radius:10px;box-shadow:0 24px 60px rgba(0,0,0,.6),inset 0 1px 0 rgba(190,215,255,.05);font-family:'JetBrains Mono',ui-monospace,monospace;overflow:hidden">
+<div class="pywebview-drag-region" style="display:flex;align-items:center;justify-content:space-between;padding:11px 15px;border-bottom:1px solid #141c33;cursor:move">
+<div style="display:flex;align-items:center;gap:8px"><div id="jc-dot" style="width:7px;height:7px;background:#5cc6e8;border-radius:2px;box-shadow:0 0 8px rgba(92,198,232,.8)"></div><div id="jc-title" style="font-size:11px;letter-spacing:.18em;color:#7e8cc0;text-transform:uppercase">jarvis</div></div>
+<div style="display:flex;align-items:center;gap:7px">
+<div id="jc-mode" style="display:flex;align-items:center;gap:6px;font-size:10px;color:#93a2d0;padding:5px 10px;border:1px solid #24305c;border-radius:5px;cursor:pointer;user-select:none"><span id="jc-mode-ic">&#9673;</span> <span id="jc-mode-tx">listen</span></div>
+<div id="jc-expand" title="expand (double-space)" style="font-size:10px;color:#93a2d0;padding:5px 9px;border:1px solid #24305c;border-radius:5px;cursor:pointer;user-select:none">&#9974;</div>
+</div>
+</div>
+<div style="position:relative;padding:19px 16px;min-height:22px">
+<div id="jc-type" style="display:flex;align-items:center;gap:10px"><div style="font-size:19px;color:#5cc6e8;line-height:1">&#8250;</div><input id="jc-input" autocomplete="off" placeholder="type a command, or say &quot;find my&#8230;&quot;" style="flex:1;min-width:0;border:none;outline:none;background:transparent;caret-color:#5cc6e8;font-family:'JetBrains Mono',ui-monospace,monospace;font-size:15.5px;color:#eef4ff" /></div>
+<div id="jc-listen" style="display:none;align-items:center;gap:13px"><div id="jc-wave" style="display:flex;align-items:center;gap:3px"><div style="width:3px;height:9px;border-radius:2px;background:#5cc6e8;animation:jcbar 1.15s ease-in-out infinite"></div><div style="width:3px;height:15px;border-radius:2px;background:#79bfe6;animation:jcbar 1.15s ease-in-out infinite;animation-delay:.09s"></div><div style="width:3px;height:22px;border-radius:2px;background:#8fdcf2;animation:jcbar 1.15s ease-in-out infinite;animation-delay:.18s"></div><div style="width:3px;height:15px;border-radius:2px;background:#79bfe6;animation:jcbar 1.15s ease-in-out infinite;animation-delay:.27s"></div><div style="width:3px;height:9px;border-radius:2px;background:#5cc6e8;animation:jcbar 1.15s ease-in-out infinite;animation-delay:.36s"></div></div><div style="flex:1;min-width:0"><div style="font-size:14px;color:#6f81b5"><span id="jc-hint">listening&#8230; </span><span id="jc-transcript" style="color:#eef4ff"></span><span style="color:#5cc6e8">&#9611;</span></div></div><div id="jc-timer" style="font-size:10px;color:#4a5590">00:00</div></div>
+</div>
+<div style="position:relative;display:flex;align-items:center;justify-content:space-between;padding:10px 14px;border-top:1px solid #141c33;background:#0a0f1c">
+<div id="jc-setup-btn" style="display:flex;align-items:center;gap:6px;font-size:10px;color:#93a2d0;padding:5px 9px;border:1px solid #24305c;border-radius:5px;cursor:pointer;user-select:none">setups <span id="jc-caret" style="font-size:8px;color:#5a68a0">&#9662;</span></div>
+<div id="jc-foot" style="font-size:10px;color:#4a5590">&#9166; run &#183; space space &#183; expand</div>
+<div id="jc-menu" style="position:absolute;left:14px;bottom:44px;width:236px;background:#0b1224;border:1px solid #24305c;border-radius:9px;box-shadow:0 18px 40px rgba(3,8,24,.7);overflow:hidden;opacity:0;transform:translateY(6px);pointer-events:none;transition:opacity .16s,transform .16s;z-index:30"></div>
+</div>
+<div id="jc-toast" style="position:absolute;left:50%;top:52px;transform:translateX(-50%) translateY(-6px);opacity:0;transition:opacity .22s,transform .22s;pointer-events:none;display:flex;align-items:center;gap:8px;padding:9px 14px;border-radius:8px;border:1px solid #24305c;background:rgba(11,18,36,.97);box-shadow:0 12px 30px rgba(3,8,24,.6);font-size:11px;color:#eef4ff;z-index:40;max-width:392px"><div style="width:6px;height:6px;border-radius:50%;background:#8fdcf2;box-shadow:0 0 8px rgba(143,220,242,.7);flex:none"></div><span id="jc-toast-text">Ready</span></div>
+</div>
+</div>
+
+<div id="jv-root" style="position:fixed;inset:0;box-sizing:border-box;background:#070d20;font-family:'Space Grotesk',sans-serif;display:flex;overflow:hidden">
 <div style="position:absolute;inset:0;pointer-events:none;overflow:hidden">
 <div style="position:absolute;left:-120px;top:-80px;width:660px;height:560px;border-radius:50%;background:radial-gradient(circle,rgba(92,198,232,.3),rgba(92,198,232,0) 68%);filter:blur(36px);animation:blob 28s ease-in-out infinite"></div>
 <div style="position:absolute;right:-180px;top:40px;width:700px;height:600px;border-radius:50%;background:radial-gradient(circle,rgba(150,110,220,.32),rgba(150,110,220,0) 68%);filter:blur(38px);animation:blob 36s ease-in-out infinite;animation-delay:-9s"></div>
@@ -50,7 +90,7 @@ input::placeholder{color:#4f5b80}
 <div class="jv-nav" data-nav="Ask" style="width:70px;padding:12px 0;text-align:center;border-radius:10px;cursor:pointer;user-select:none;background:rgba(190,215,255,.14);border:1px solid rgba(150,180,235,.2);font:500 11px/1 'Space Grotesk',sans-serif;color:#eef4ff">Ask</div>
 <div class="jv-nav" data-nav="Files" style="width:70px;padding:12px 0;text-align:center;border-radius:10px;cursor:pointer;user-select:none;font:400 11px/1 'Space Grotesk',sans-serif;color:#93a2d0">Files</div>
 <div class="jv-nav" data-nav="Stocks" style="width:70px;padding:12px 0;text-align:center;border-radius:10px;cursor:pointer;user-select:none;font:400 11px/1 'Space Grotesk',sans-serif;color:#93a2d0">Stocks</div>
-<div class="jv-nav" data-nav="Inbox" style="position:relative;width:70px;padding:12px 0;text-align:center;border-radius:10px;cursor:pointer;user-select:none;font:400 11px/1 'Space Grotesk',sans-serif;color:#93a2d0">Inbox<div style="position:absolute;top:8px;right:11px;width:6px;height:6px;border-radius:50%;background:#5cc6e8;box-shadow:0 0 8px rgba(92,198,232,.9)"></div></div>
+<div class="jv-nav" data-nav="Inbox" style="position:relative;width:70px;padding:12px 0;text-align:center;border-radius:10px;cursor:pointer;user-select:none;font:400 11px/1 'Space Grotesk',sans-serif;color:#93a2d0">Inbox<div id="jv-inbox-dot" style="display:none;position:absolute;top:8px;right:11px;width:6px;height:6px;border-radius:50%;background:#5cc6e8;box-shadow:0 0 8px rgba(92,198,232,.9)"></div></div>
 <div class="jv-nav" data-nav="Setups" style="width:70px;padding:12px 0;text-align:center;border-radius:10px;cursor:pointer;user-select:none;font:400 11px/1 'Space Grotesk',sans-serif;color:#93a2d0">Setups</div>
 <div style="margin-top:auto;display:flex;flex-direction:column;align-items:center;gap:9px">
 <div class="jv-nav" data-nav="Settings" style="width:70px;padding:10px 0;text-align:center;border-radius:10px;cursor:pointer;user-select:none;font:400 10.5px/1 'Space Grotesk',sans-serif;color:#6f81b5">Settings</div>
@@ -58,14 +98,18 @@ input::placeholder{color:#4f5b80}
 </div>
 </div>
 <div style="position:relative;flex:1;display:flex;flex-direction:column">
-<div style="display:flex;align-items:center;justify-content:space-between;padding:15px 26px;border-bottom:1px solid rgba(150,180,235,.12)">
+<div class="pywebview-drag-region" style="display:flex;align-items:center;justify-content:space-between;padding:15px 26px;border-bottom:1px solid rgba(150,180,235,.12);cursor:move">
 <div style="display:flex;align-items:center;gap:16px">
 <div style="font:500 12px/1 'Space Grotesk',sans-serif;letter-spacing:.24em;color:#eef4ff;text-transform:uppercase">Jarvis</div>
 <div id="jv-st-ollama" style="display:flex;align-items:center;gap:7px;font:400 10.5px/1 'JetBrains Mono',monospace;color:#6f81b5"><div style="width:6px;height:6px;border-radius:50%;background:#7fae8c"></div>ollama ready</div>
 <div id="jv-st-ev" style="display:flex;align-items:center;gap:7px;font:400 10.5px/1 'JetBrains Mono',monospace;color:#6f81b5"><div style="width:6px;height:6px;border-radius:50%;background:#7fae8c"></div>everything up</div>
 <div id="jv-st-gmail" style="display:flex;align-items:center;gap:7px;font:400 10.5px/1 'JetBrains Mono',monospace;color:#6f81b5"><div style="width:6px;height:6px;border-radius:50%;background:#5cc6e8"></div>gmail 12m</div>
 </div>
+<div style="display:flex;align-items:center;gap:12px">
 <div id="jv-clock" style="font:400 11px/1 'JetBrains Mono',monospace;color:#c4cfee">Tue 21:04</div>
+<div id="jv-shrink" class="jv-tog" title="pin to corner (double-space)" style="font:400 11px/1 'JetBrains Mono',monospace;color:#93a2d0;border:1px solid rgba(150,180,235,.22);border-radius:7px;padding:6px 9px">&#9109;</div>
+<div id="jv-close" class="jv-tog" title="hide to tray (double-Esc)" style="font:400 11px/1 'JetBrains Mono',monospace;color:#93a2d0;border:1px solid rgba(150,180,235,.22);border-radius:7px;padding:6px 10px">&#10005;</div>
+</div>
 </div>
 <div style="display:flex;align-items:center;gap:12px;padding:16px 26px 0">
 <div style="flex:1;display:flex;align-items:center;gap:12px;background:rgba(190,215,255,.07);border:1px solid rgba(150,180,235,.18);border-radius:999px;padding:12px 20px;backdrop-filter:blur(12px)">
@@ -73,10 +117,7 @@ input::placeholder{color:#4f5b80}
 <input id="jv-search" autocomplete="off" placeholder="Search for files — type, or say &quot;find my…&quot;" style="flex:1;min-width:0;border:none;outline:none;background:transparent;font:400 13.5px/1 'Space Grotesk',sans-serif;color:#eef4ff" />
 <div style="font:400 10px/1 'JetBrains Mono',monospace;color:#5a68a0">&#8984;K</div>
 </div>
-<div style="display:flex;gap:8px">
-<div style="font:400 10.5px/1 'JetBrains Mono',monospace;color:#c4cfee;padding:9px 13px;border:1px solid rgba(150,180,235,.16);border-radius:999px;background:rgba(190,215,255,.05)">Resume_2026.pdf</div>
-<div style="font:400 10.5px/1 'JetBrains Mono',monospace;color:#93a2d0;padding:9px 13px;border:1px solid rgba(150,180,235,.16);border-radius:999px;background:rgba(190,215,255,.05)">internships.xlsx</div>
-</div>
+<div id="jv-quickfiles" style="display:flex;gap:8px"></div>
 </div>
 <div id="jv-panels" style="position:relative;flex:1;display:flex;align-items:center;justify-content:center;min-height:0">
 <div id="jv-panel-Ask" class="jv-panel on" style="position:relative;width:900px;height:360px;align-items:center;justify-content:center">
@@ -134,8 +175,26 @@ input::placeholder{color:#4f5b80}
 <div style="font:500 12px/1 'Space Grotesk',sans-serif;letter-spacing:.2em;color:#eef4ff;text-transform:uppercase">Setups</div>
 <div id="jv-setups-edit" class="jv-tog jv-hint" style="border:1px solid rgba(150,180,235,.2);border-radius:8px;padding:6px 11px">edit app_setups.json</div>
 </div>
+<div id="jv-setup-editor" style="display:none;flex-direction:column;gap:9px;border:1px solid rgba(92,198,232,.4);border-radius:12px;background:rgba(92,198,232,.08);padding:14px 16px">
+<div style="display:flex;align-items:center;gap:10px">
+<input id="jv-setup-name" autocomplete="off" placeholder="name (e.g. gaming)" style="width:170px;border:none;outline:none;background:rgba(7,13,32,.55);border:1px solid rgba(150,180,235,.22);border-radius:9px;padding:9px 12px;font:400 12.5px/1 'Space Grotesk',sans-serif;color:#eef4ff" />
+<input id="jv-setup-desc" autocomplete="off" placeholder="what should it open?  e.g. steam, discord and youtube" style="flex:1;min-width:0;border:none;outline:none;background:rgba(7,13,32,.55);border:1px solid rgba(150,180,235,.22);border-radius:9px;padding:9px 12px;font:400 12.5px/1 'Space Grotesk',sans-serif;color:#eef4ff" />
+<div id="jv-setup-infer" class="jv-tog" style="font:500 11px/1 'JetBrains Mono',monospace;color:#061024;background:#5cc6e8;padding:10px 14px;border-radius:9px">figure it out</div>
+</div>
+<div id="jv-setup-items" style="display:flex;flex-wrap:wrap;gap:7px"></div>
+<div style="display:flex;align-items:center;justify-content:space-between;gap:10px">
+<div id="jv-setup-msg" class="jv-hint" style="color:#8fdcf2"></div>
+<div style="display:flex;gap:8px">
+<div id="jv-setup-cancel" class="jv-tog jv-hint" style="border:1px solid rgba(150,180,235,.2);border-radius:8px;padding:7px 12px">cancel</div>
+<div id="jv-setup-save" class="jv-tog" style="font:500 11px/1 'JetBrains Mono',monospace;color:#061024;background:#7fae8c;padding:8px 14px;border-radius:8px">save setup</div>
+</div>
+</div>
+</div>
 <div id="jv-setups-list" class="jv-scroll" style="flex:1;min-height:0;border:1px solid rgba(150,180,235,.14);border-radius:12px;background:rgba(190,215,255,.04)"></div>
-<div class="jv-hint" style="color:#5a68a0">keys 1-4 launch the first four &#183; click a card below anytime</div>
+<div style="display:flex;align-items:center;justify-content:space-between">
+<div class="jv-hint" style="color:#5a68a0">keys 1-4 launch the first four &#183; click a row to launch</div>
+<div id="jv-setup-new" class="jv-tog" style="font:500 11px/1 'JetBrains Mono',monospace;color:#061024;background:#5cc6e8;padding:8px 14px;border-radius:8px">+ new setup</div>
+</div>
 </div>
 
 <div id="jv-panel-Settings" class="jv-panel" style="width:900px;height:100%;max-height:390px;flex-direction:column;gap:10px;padding:6px 0">
@@ -251,9 +310,28 @@ input::placeholder{color:#4f5b80}
       if(name==='Stocks')loadStocks();
       if(name==='Setups')loadSetups();
       if(name==='Settings')loadSettings();
-      if(name==='Inbox')loadInbox();
+      if(name==='Inbox'){loadInbox();markInboxSeen();}
     }
     navs.forEach(function(n){n.addEventListener('click',function(){activate(n);showTab(n.getAttribute('data-nav'));});});
+    function activateNav(name){var n=document.querySelector('.jv-nav[data-nav="'+name+'"]');if(n)activate(n);}
+
+    // Quick-file chips beside the search bar — real files from settings.json.
+    function loadQuickFiles(){var a=api();if(!a||!a.quick_files)return;
+      var host=document.getElementById('jv-quickfiles');if(!host)return;
+      a.quick_files().then(function(r){
+        var files=(r&&r.files)||[];
+        if(!files.length){host.innerHTML='';return;}
+        var html='';
+        files.forEach(function(f){
+          html+='<div class="jv-tog jv-qf" data-path="'+esc(f.path)+'" title="'+esc(f.exists?f.path:'not found: '+f.path)+'" '
+            +'style="font:400 10.5px/1 \'JetBrains Mono\',monospace;color:'+(f.exists?'#c4cfee':'#c98a9b')
+            +';padding:9px 13px;border:1px solid rgba(150,180,235,.16);border-radius:999px;background:rgba(190,215,255,.05)">'
+            +esc(f.label)+(f.exists?'':' ?')+'</div>';});
+        host.innerHTML=html;
+        [].slice.call(host.querySelectorAll('.jv-qf')).forEach(function(c){
+          c.addEventListener('click',function(){var a2=api();if(!a2||!a2.open_file)return;
+            a2.open_file(c.getAttribute('data-path')).then(function(r2){say((r2&&r2.reply)||'Opening');});});});
+      }).catch(function(){});}
 
     // ---- Files tab ----
     var filesInput=document.getElementById('jv-files-input');
@@ -316,23 +394,96 @@ input::placeholder{color:#4f5b80}
     var sref=document.getElementById('jv-stocks-refresh');
     if(sref)sref.addEventListener('click',function(){loadStocks();refreshPortfolio();say('Refreshing portfolio');});
 
-    // ---- Setups tab ----
+    // ---- Setups tab (list + create/edit) ----
     function loadSetups(){var a=api();if(!a||!a.get_setups_detail)return;
       var list=document.getElementById('jv-setups-list');
       a.get_setups_detail().then(function(r){
-        if(!r||!r.setups||!r.setups.length){list.innerHTML='<div class="jv-hint" style="padding:16px">No setups defined.</div>';return;}
+        if(!r||!r.setups||!r.setups.length){list.innerHTML='<div class="jv-hint" style="padding:16px">No setups yet — use “+ new setup”.</div>';return;}
         var html='';
         r.setups.forEach(function(s,i){
-          html+='<div class="jv-row jv-setup-row" data-name="'+esc(s.name)+'" style="display:flex;align-items:center;justify-content:space-between;gap:14px;padding:13px 16px;cursor:pointer">'
-            +'<div><div style="font:500 14px/1.1 \'Space Grotesk\',sans-serif;color:#eef4ff">'+esc(s.label)+'</div>'
-            +'<div style="font:400 10px/1.4 \'JetBrains Mono\',monospace;color:'+(s.missing?'#c98a9b':'#8fdcf2')+';margin-top:5px">'+esc(s.summary||('—'))+(s.missing?('  ·  '+s.missing+' path(s) not found'):'')+'</div></div>'
-            +'<div style="display:flex;align-items:center;gap:10px"><div class="jv-hint" style="color:#5a68a0">'+s.count+' item'+(s.count===1?'':'s')+'</div>'
-            +(i<4?'<div style="font:600 9.5px/1 \'JetBrains Mono\',monospace;color:#93a2d0;border:1px solid rgba(150,180,235,.2);padding:4px 7px;border-radius:3px">'+(i+1)+'</div>':'')+'</div></div>';
+          html+='<div class="jv-row" style="display:flex;align-items:center;justify-content:space-between;gap:14px;padding:13px 16px">'
+            +'<div class="jv-setup-run" data-name="'+esc(s.name)+'" style="flex:1;min-width:0;cursor:pointer">'
+            +'<div style="font:500 14px/1.1 \'Space Grotesk\',sans-serif;color:#eef4ff">'+esc(s.label)+'</div>'
+            +'<div style="font:400 10px/1.4 \'JetBrains Mono\',monospace;color:'+(s.missing?'#c98a9b':'#8fdcf2')+';margin-top:5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+esc(s.summary||'—')+(s.missing?('  ·  '+s.missing+' path(s) not found'):'')+'</div></div>'
+            +'<div style="display:flex;align-items:center;gap:8px;flex:none">'
+            +'<div class="jv-hint" style="color:#5a68a0">'+s.count+' item'+(s.count===1?'':'s')+'</div>'
+            +(i<4?'<div style="font:600 9.5px/1 \'JetBrains Mono\',monospace;color:#93a2d0;border:1px solid rgba(150,180,235,.2);padding:4px 7px;border-radius:3px">'+(i+1)+'</div>':'')
+            +'<div class="jv-tog jv-setup-edit jv-hint" data-name="'+esc(s.name)+'" style="border:1px solid rgba(150,180,235,.2);border-radius:7px;padding:5px 9px">edit</div>'
+            +'<div class="jv-tog jv-setup-del jv-hint" data-name="'+esc(s.name)+'" style="border:1px solid rgba(150,180,235,.2);border-radius:7px;padding:5px 8px">&#10005;</div>'
+            +'</div></div>';
         });
         list.innerHTML=html;
-        [].slice.call(list.querySelectorAll('.jv-setup-row')).forEach(function(row){
-          row.addEventListener('click',function(){launch(row.getAttribute('data-name'));});});
+        [].slice.call(list.querySelectorAll('.jv-setup-run')).forEach(function(el){
+          el.addEventListener('click',function(){launch(el.getAttribute('data-name'));});});
+        [].slice.call(list.querySelectorAll('.jv-setup-edit')).forEach(function(el){
+          el.addEventListener('click',function(e){e.stopPropagation();openEditSetup(el.getAttribute('data-name'));});});
+        [].slice.call(list.querySelectorAll('.jv-setup-del')).forEach(function(el){
+          el.addEventListener('click',function(e){e.stopPropagation();
+            var n=el.getAttribute('data-name');
+            if(el.dataset.armed!=='1'){el.dataset.armed='1';el.textContent='sure?';
+              setTimeout(function(){el.dataset.armed='0';el.innerHTML='&#10005;';},2600);return;}
+            var a2=api();if(!a2||!a2.delete_setup)return;
+            a2.delete_setup(n).then(function(r2){say((r2&&r2.reply)||'Deleted');loadSetups();refreshSetups();buildJcMenu();});});});
       }).catch(function(){});}
+
+    // --- the create / edit editor ---
+    var edBox=document.getElementById('jv-setup-editor'),edName=document.getElementById('jv-setup-name'),
+        edDesc=document.getElementById('jv-setup-desc'),edItems=document.getElementById('jv-setup-items'),
+        edMsg=document.getElementById('jv-setup-msg');
+    var edCurrent=[];
+    function renderEdItems(){
+      if(!edItems)return;
+      if(!edCurrent.length){edItems.innerHTML='<div class="jv-hint" style="color:#6f81b5">Nothing yet — describe it above and press “figure it out”.</div>';return;}
+      var html='';
+      edCurrent.forEach(function(it,i){
+        var label=it.type==='url'?it.target:(it.type==='store'?(it.aumid||'').split('!').pop():(it.path||'').split('\\').pop());
+        html+='<div style="display:flex;align-items:center;gap:8px;padding:7px 11px;border:1px solid rgba(150,180,235,.22);border-radius:999px;background:rgba(7,13,32,.5)">'
+          +'<span style="font:400 9.5px/1 \'JetBrains Mono\',monospace;color:#5a68a0">'+esc(it.type)+'</span>'
+          +'<span style="font:400 11px/1 \'JetBrains Mono\',monospace;color:#c4cfee;max-width:230px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+esc(label)+'</span>'
+          +'<span class="jv-tog jv-ed-rm" data-i="'+i+'" style="font:400 11px/1 \'JetBrains Mono\',monospace;color:#93a2d0">&#10005;</span></div>';});
+      edItems.innerHTML=html;
+      [].slice.call(edItems.querySelectorAll('.jv-ed-rm')).forEach(function(x){
+        x.addEventListener('click',function(){edCurrent.splice(parseInt(x.getAttribute('data-i'),10),1);renderEdItems();});});}
+    function openNewSetup(){edCurrent=[];if(edName)edName.value='';if(edDesc)edDesc.value='';
+      if(edMsg)edMsg.textContent='';renderEdItems();
+      if(edBox){edBox.style.display='flex';setTimeout(function(){edName.focus();},40);}}
+    function openEditSetup(name){var a=api();if(!a||!a.get_setup)return;
+      a.get_setup(name).then(function(r){
+        edCurrent=(r&&r.items)||[];
+        if(edName)edName.value=name;
+        if(edDesc)edDesc.value='';
+        if(edMsg)edMsg.textContent='editing “'+name+'” — add more below or remove items';
+        renderEdItems();
+        if(edBox){edBox.style.display='flex';setTimeout(function(){edDesc.focus();},40);}});}
+    function closeEditor(){if(edBox)edBox.style.display='none';edCurrent=[];}
+    var edNew=document.getElementById('jv-setup-new');
+    if(edNew)edNew.addEventListener('click',openNewSetup);
+    var edCancel=document.getElementById('jv-setup-cancel');
+    if(edCancel)edCancel.addEventListener('click',closeEditor);
+    function inferSetup(){var a=api();if(!a||!a.infer_setup)return;
+      var d=(edDesc.value||'').trim();
+      if(!d){edMsg.textContent='Describe what it should open first.';return;}
+      edMsg.textContent='working it out…';
+      a.infer_setup(d).then(function(r){
+        if(!r){edMsg.textContent='Could not work that out.';return;}
+        (r.items||[]).forEach(function(it){edCurrent.push(it);});
+        renderEdItems();
+        edMsg.textContent=r.reply||'';
+        edDesc.value='';
+        if(!edName.value.trim()&&d){edName.value=d.split(/[ ,]/)[0].toLowerCase();}
+      }).catch(function(){edMsg.textContent='Could not work that out.';});}
+    var edInfer=document.getElementById('jv-setup-infer');
+    if(edInfer)edInfer.addEventListener('click',inferSetup);
+    if(edDesc)edDesc.addEventListener('keydown',function(e){if(e.key==='Enter'){e.preventDefault();inferSetup();}});
+    var edSave=document.getElementById('jv-setup-save');
+    if(edSave)edSave.addEventListener('click',function(){var a=api();if(!a||!a.save_setup)return;
+      var n=(edName.value||'').trim();
+      if(!n){edMsg.textContent='Give it a name first.';return;}
+      if(!edCurrent.length){edMsg.textContent='Add at least one thing to open.';return;}
+      a.save_setup(n,edCurrent).then(function(r){
+        say((r&&r.reply)||'Saved');
+        if(r&&r.ok){closeEditor();loadSetups();refreshSetups();buildJcMenu();}
+        else if(r){edMsg.textContent=r.reply||'Could not save';}});});
     var sedit=document.getElementById('jv-setups-edit');
     if(sedit)sedit.addEventListener('click',function(){var a=api();if(a&&a.open_setups_file)a.open_setups_file().then(function(r){say((r&&r.reply)||'Opening');});});
 
@@ -457,7 +608,143 @@ input::placeholder{color:#4f5b80}
       if(d!=null&&v!=null&&(v-d)!==0){var p=d/(v-d)*100;var col=d>=0?'#7fae8c':'#c98a9b';el.innerHTML=txt+' <span style="color:'+col+'">'+(p>=0?'+':'')+p.toFixed(1)+'%</span>';}
       else{el.textContent=txt;}}).catch(function(){});}
     function refreshSetups(){var a=api();if(!a||!a.get_setups)return;a.get_setups().then(function(r){if(r&&r.order&&r.order.length){order=r.order.map(function(n){return n.charAt(0).toUpperCase()+n.slice(1);});}}).catch(function(){});}
-    function bootBackend(){refreshStatus();refreshSetups();refreshPortfolio();setInterval(refreshStatus,60000);setInterval(refreshPortfolio,120000);}
+    // ================= compact mode =================
+    // Same app, shrunk to the pinned console. Everything routes through the
+    // same route()/launch() as the full view — there is no second front-end.
+    var jc={card:document.getElementById('jc-card'),input:document.getElementById('jc-input'),
+            toast:document.getElementById('jc-toast'),toastText:document.getElementById('jc-toast-text'),
+            typeV:document.getElementById('jc-type'),listenV:document.getElementById('jc-listen'),
+            modeBtn:document.getElementById('jc-mode'),modeIc:document.getElementById('jc-mode-ic'),
+            modeTx:document.getElementById('jc-mode-tx'),dot:document.getElementById('jc-dot'),
+            title:document.getElementById('jc-title'),foot:document.getElementById('jc-foot'),
+            btn:document.getElementById('jc-setup-btn'),menu:document.getElementById('jc-menu'),
+            caret:document.getElementById('jc-caret'),wave:document.getElementById('jc-wave'),
+            ts:document.getElementById('jc-transcript'),hint:document.getElementById('jc-hint'),
+            timer:document.getElementById('jc-timer')};
+    var jcToastTimer=null;
+    function jcSay(t){if(!jc.toastText)return;jc.toastText.textContent=t;jc.toast.style.opacity='1';
+      jc.toast.style.transform='translateX(-50%) translateY(0)';clearTimeout(jcToastTimer);
+      jcToastTimer=setTimeout(function(){jc.toast.style.opacity='0';jc.toast.style.transform='translateX(-50%) translateY(-6px)';},3400);}
+
+    var layout='full';
+    // Only the HEIGHT is measured and reported. Width stays whatever Python
+    // configured — measuring it here raced the resize and reported the
+    // full-size window width instead of the card's.
+    function measureCompact(){
+      var a=api();if(!a||!a.set_compact_height||!jc.card)return;
+      var h=Math.ceil(jc.card.getBoundingClientRect().height);
+      if(h>40)a.set_compact_height(h).catch(function(){});}
+    window.jarvisSetLayout=function(mode){
+      layout=(mode==='compact')?'compact':'full';
+      document.body.classList.toggle('compact',layout==='compact');
+      if(layout==='compact'){setTimeout(measureCompact,30);setTimeout(function(){if(jc.input)jc.input.focus();},60);}
+      else{closeJcMenu();setTimeout(function(){if(input)input.focus();},60);}};
+    window.jarvisFocus=function(){
+      if(layout==='compact'){if(jc.input)jc.input.focus();}else if(input){input.focus();}};
+    function setLayout(mode){var a=api();
+      window.jarvisSetLayout(mode);
+      if(a&&a.set_layout)a.set_layout(mode).catch(function(){});}
+    function toggleLayout(){setLayout(layout==='compact'?'full':'compact');}
+    var shrink=document.getElementById('jv-shrink');
+    if(shrink)shrink.addEventListener('click',function(){setLayout('compact');});
+    var expand=document.getElementById('jc-expand');
+    if(expand)expand.addEventListener('click',function(e){e.stopPropagation();setLayout('full');});
+    var closeBtn=document.getElementById('jv-close');
+    if(closeBtn)closeBtn.addEventListener('click',function(){var a=api();if(a&&a.hide_window)a.hide_window();});
+
+    // compact: route + launch reuse the full view's handlers
+    function jcRoute(q){q=(q||'').trim();if(!q)return;jc.input.value='';var a=api();
+      if(!a){jcSay('Backend not connected');return;}
+      jcSay('…');
+      a.route(q).then(function(r){jcSay((r&&r.reply)||'Done');}).catch(function(){jcSay('Something went wrong');});}
+    if(jc.input)jc.input.addEventListener('keydown',function(e){
+      if(e.key==='Enter'){e.preventDefault();jcRoute(jc.input.value);}
+      else if(e.key==='Escape'){if(jcMenuOpen){closeJcMenu();}else if(jc.input.value){jc.input.value='';}}});
+
+    // compact setups menu, built from the real app_setups.json
+    var jcMenuOpen=false;
+    function openJcMenu(){jcMenuOpen=true;jc.menu.style.opacity='1';jc.menu.style.transform='translateY(0)';
+      jc.menu.style.pointerEvents='auto';jc.caret.innerHTML='&#9652;';}
+    function closeJcMenu(){jcMenuOpen=false;jc.menu.style.opacity='0';jc.menu.style.transform='translateY(6px)';
+      jc.menu.style.pointerEvents='none';jc.caret.innerHTML='&#9662;';}
+    function buildJcMenu(){var a=api();if(!a||!a.get_setups_detail||!jc.menu)return;
+      a.get_setups_detail().then(function(r){
+        var rows=(r&&r.setups)||[],html='';
+        rows.slice(0,6).forEach(function(s,i){
+          html+='<div class="jc-item" data-setup="'+esc(s.name)+'" style="display:flex;align-items:center;justify-content:space-between;gap:10px;padding:11px 13px;border-bottom:1px solid #141c33;cursor:pointer">'
+            +'<div style="min-width:0"><div style="font-size:13px;color:#eef4ff">'+esc(s.label)+'</div>'
+            +'<div style="font-size:9.5px;color:#6f81b5;margin-top:4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+esc(s.summary||'')+'</div></div>'
+            +(i<4?'<div style="font-size:9px;color:#93a2d0;border:1px solid #24305c;padding:3px 5px;border-radius:3px;flex:none">'+(i+1)+'</div>':'')+'</div>';});
+        html+='<div class="jc-item" data-setup="__new" style="padding:10px 13px;cursor:pointer;font-size:12px;color:#6f81b5">+ new setup&#8230;</div>';
+        jc.menu.innerHTML=html;
+        [].slice.call(jc.menu.querySelectorAll('.jc-item')).forEach(function(c){
+          c.addEventListener('click',function(){var n=c.getAttribute('data-setup');closeJcMenu();
+            if(n==='__new'){setLayout('full');showTab('Setups');activateNav('Setups');setTimeout(openNewSetup,120);return;}
+            var a2=api();if(!a2)return;
+            a2.launch_setup(n).then(function(r2){jcSay((r2&&r2.reply)||'Done');});});});
+      }).catch(function(){});}
+    if(jc.btn)jc.btn.addEventListener('click',function(e){e.stopPropagation();jcMenuOpen?closeJcMenu():openJcMenu();});
+    document.addEventListener('click',function(){if(jcMenuOpen)closeJcMenu();});
+
+    // compact voice, sharing the same worker-thread bridge as the full view
+    var jcListening=false,jcPoll=null;
+    function jcStopPoll(){if(jcPoll){clearInterval(jcPoll);jcPoll=null;}}
+    function jcSetWave(level){if(!jc.wave)return;var b=jc.wave.children,base=[9,15,22,15,9];
+      for(var i=0;i<b.length;i++){b[i].style.height=(base[i]*(0.35+1.15*Math.min(1,level||0))).toFixed(0)+'px';}}
+    function jcFmt(s){s=Math.max(0,Math.floor(s||0));return ('0'+Math.floor(s/60)).slice(-2)+':'+('0'+(s%60)).slice(-2);}
+    function jcStartVoice(){var a=api();if(!a||!a.voice_start){jc.hint.textContent='voice unavailable ';return;}
+      jc.ts.textContent='';jc.hint.textContent='listening… ';jc.timer.textContent='00:00';
+      a.voice_start().then(function(r){if(r&&r.ok===false){jc.hint.textContent=(r.reply||'busy')+' ';return;}
+        jcStopPoll();
+        jcPoll=setInterval(function(){a.voice_poll().then(function(v){if(!v)return;
+          jc.timer.textContent=jcFmt(v.seconds);
+          if(v.state==='recording'){jcSetWave(v.level);jc.hint.textContent='listening… ';}
+          else if(v.state==='transcribing'){jcSetWave(0.2);jc.hint.textContent='thinking… ';}
+          if(v.transcript){jc.ts.textContent=v.transcript;jc.hint.textContent='';}
+          if(v.state==='done'||v.state==='error'){jcStopPoll();jcSetWave(0.25);
+            if(v.reply)jcSay(v.reply);
+            setTimeout(function(){if(jcListening)jcSetMode(false);},1500);}
+        }).catch(function(){jcStopPoll();});},180);}).catch(function(){jc.hint.textContent='voice failed ';});}
+    function jcSetMode(on){jcListening=on;
+      if(on){jc.typeV.style.display='none';jc.listenV.style.display='flex';jc.modeIc.innerHTML='&#9000;';
+        jc.modeTx.textContent='type';jc.dot.style.background='#8fdcf2';jc.dot.style.animation='pulse 1.4s ease-in-out infinite';
+        jc.title.textContent='listening';jc.title.style.color='#8fdcf2';jc.foot.innerHTML='pauses &#183; auto-send';jcStartVoice();}
+      else{jcStopPoll();var a=api();if(a&&a.voice_stop)a.voice_stop();
+        jc.listenV.style.display='none';jc.typeV.style.display='flex';jc.modeIc.innerHTML='&#9673;';
+        jc.modeTx.textContent='listen';jc.dot.style.animation='none';jc.dot.style.background='#5cc6e8';
+        jc.title.textContent='jarvis';jc.title.style.color='#7e8cc0';jc.foot.innerHTML='&#9166; run &#183; space space &#183; expand';
+        setTimeout(function(){jc.input.focus();},0);}}
+    if(jc.modeBtn)jc.modeBtn.addEventListener('click',function(e){e.stopPropagation();jcSetMode(!jcListening);});
+
+    // ---- double-space toggles size ----
+    // Ignored mid-command so typing "a  b" in the console never resizes the
+    // window; only a leading/empty double-space counts.
+    var lastSpace=0;
+    document.addEventListener('keydown',function(e){
+      if(e.key!==' ')return;
+      var el=document.activeElement,tag=el?el.tagName:'';
+      var typing=(tag==='INPUT'||tag==='TEXTAREA');
+      if(typing&&String(el.value||'').trim()!=='')  {lastSpace=0;return;}
+      var now=Date.now();
+      // 500ms: a deliberate double-tap is 100-300ms, and the extra headroom
+      // keeps it reliable when the page is mid-relayout after a previous switch.
+      if(now-lastSpace<500){lastSpace=0;e.preventDefault();
+        if(typing)el.value='';
+        toggleLayout();}
+      else{lastSpace=now;}},true);
+
+    // The Inbox dot means "something changed you haven't seen", not "the tab
+    // exists" — so it only lights when there are unseen detections.
+    function refreshInboxBadge(){var a=api();if(!a||!a.inbox_unseen)return;
+      a.inbox_unseen().then(function(r){
+        var dot=document.getElementById('jv-inbox-dot');if(!dot)return;
+        dot.style.display=(r&&r.unseen>0)?'block':'none';}).catch(function(){});}
+    function markInboxSeen(){var a=api();if(a&&a.inbox_mark_seen)a.inbox_mark_seen().then(refreshInboxBadge).catch(function(){});}
+
+    function bootBackend(){refreshStatus();refreshSetups();refreshPortfolio();buildJcMenu();
+      loadQuickFiles();refreshInboxBadge();
+      setInterval(refreshStatus,60000);setInterval(refreshPortfolio,120000);
+      setInterval(refreshInboxBadge,60000);}
     window.addEventListener('pywebviewready',bootBackend);
     if(api()){bootBackend();}
   };
