@@ -23,6 +23,32 @@ def names() -> list:
         return []
 
 
+def detail() -> list:
+    """Each setup with a readable summary of what it launches, for the UI."""
+    out = []
+    for name, items in _load().items():
+        parts, missing = [], 0
+        for it in items:
+            if it.get("type") == "app":
+                path = os.path.expandvars(it.get("path", ""))
+                parts.append(os.path.splitext(os.path.basename(path))[0])
+                if not (os.path.isfile(path) or os.path.basename(path) == path):
+                    missing += 1
+            elif it.get("type") == "url":
+                host = re.sub(r"^https?://(www\.)?", "", it.get("target", "")).split("/")[0]
+                parts.append(host)
+            elif it.get("type") == "store":
+                parts.append(it.get("aumid", "").split("!")[-1])
+            elif it.get("type") == "file":
+                parts.append(os.path.basename(it.get("target", "")))
+        out.append({
+            "name": name, "label": name.capitalize(),
+            "summary": " · ".join(p.lower() for p in parts if p),
+            "count": len(items), "missing": missing,
+        })
+    return out
+
+
 def match(text_lc: str):
     """Return the setup name mentioned in the text, if any ('study mode' -> 'study')."""
     for name in names():

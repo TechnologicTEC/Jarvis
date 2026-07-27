@@ -1,5 +1,7 @@
 {
-  "hotkey": { "double_esc_ms": 400 },
+  "hotkey": {
+    "double_esc_ms": 400
+  },
   "voice": {
     "enabled": true,
     "tts": "edge-tts",
@@ -9,7 +11,10 @@
     "speak_replies": true,
     "auto_listen_on_open": false
   },
-  "llm": { "ollama_url": "http://127.0.0.1:11434", "ollama_model": "llama3.2:3b" },
+  "llm": {
+    "ollama_url": "http://127.0.0.1:11434",
+    "ollama_model": "llama3.2:3b"
+  },
   "paths": {
     "es_exe": "vendor\\es.exe",
     "chrome": "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe"
@@ -19,5 +24,15 @@
     "user_email": "user@example.com",
     "readonly_database_url": ""
   },
-  "ui": { "full_size": [1180, 760], "mini_size": [470, 400], "open_full_on_start": true }
+  "ui": {
+    "full_size": [
+      1180,
+      760
+    ],
+    "mini_size": [
+      470,
+      400
+    ],
+    "open_full_on_start": true
+  }
 }

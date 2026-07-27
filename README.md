@@ -41,6 +41,22 @@ python main.py --tray   # start silent in the tray (what autostart uses)
 The full app header shows honest status dots for ollama / everything / gmail, and
 a live portfolio figure. Nothing in the UI is placeholder data any more.
 
+## The full app's tabs
+
+All six nav tabs are built and read from the live backend:
+
+- **Ask** — composer, mic ring, and the orb. Free-form Q&A and voice.
+- **Files** — live Everything search as you type, with the real indexed count
+  (~1.6M items here). Click a result to reveal it in Explorer.
+- **Stocks** — total / today / overall / invested / wallet, plus every holding
+  with its day and lifetime move and a weight bar.
+- **Inbox** — states plainly that phase 7 isn't connected and what it needs.
+- **Setups** — every setup, what it launches, and a warning count if any
+  configured path no longer exists. Click to launch.
+- **Settings** — working toggles (voice, spoken replies, auto-listen, model
+  preload) that write straight to `settings.json`, plus read-only status for
+  Ollama, Everything, Stock_Project and Gmail.
+
 ## Stocks integration — how the read-only guarantee works
 
 `skills/stocks.py` reuses Stock_Project's own `engine/chat_tools.py` rather than

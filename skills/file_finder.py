@@ -44,6 +44,21 @@ def is_available() -> bool:
     return es_path() is not None
 
 
+def index_count() -> int:
+    """How many items Everything currently has indexed (0 if unavailable)."""
+    es = es_path()
+    if not es:
+        return 0
+    try:
+        out = subprocess.run(
+            [es, "-get-result-count"], capture_output=True, text=True, timeout=5,
+            creationflags=subprocess.CREATE_NO_WINDOW,
+        )
+        return int(out.stdout.strip()) if out.returncode == 0 else 0
+    except Exception:
+        return 0
+
+
 def search(query: str, limit=5) -> dict:
     es = es_path()
     if not es:

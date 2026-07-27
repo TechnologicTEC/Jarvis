@@ -91,10 +91,19 @@ def show_mini():
         return
     MINI.show()
     _mini_visible = True
+    # Honour voice.auto_listen_on_open: either drop straight into listen mode
+    # or just put the caret in the command line.
+    auto = config.get("voice", "enabled", default=True) and \
+        config.get("voice", "auto_listen_on_open", default=False)
     try:
-        MINI.evaluate_js(
-            "(function(){var i=document.getElementById('jc-input');if(i){i.focus();}})()"
-        )
+        if auto:
+            MINI.evaluate_js(
+                "(function(){if(window.jarvisSetMode)window.jarvisSetMode(true);})()"
+            )
+        else:
+            MINI.evaluate_js(
+                "(function(){var i=document.getElementById('jc-input');if(i){i.focus();}})()"
+            )
     except Exception:
         pass
 

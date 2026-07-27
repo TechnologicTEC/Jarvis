@@ -33,6 +33,13 @@ class JarvisApi:
     def get_setups(self):
         return {"ok": True, "order": actions.names()}
 
+    def get_setups_detail(self):
+        """Each setup plus a readable summary of what it launches — Setups tab."""
+        try:
+            return {"ok": True, "setups": actions.detail()}
+        except Exception as e:
+            return {"ok": False, "setups": [], "reply": str(e)}
+
     def open_setups_file(self):
         try:
             actions.open_config()
@@ -82,6 +89,32 @@ class JarvisApi:
             return stocks.holdings()
         except Exception as e:
             return {"ok": False, "reply": f"Stocks unavailable — {e}", "holdings": []}
+
+    # ---- settings ----
+    def get_settings(self):
+        from core import config
+        return {"ok": True, "settings": config.load()}
+
+    def set_setting(self, section, key, value):
+        from core import config
+        try:
+            config.set_value(section, key, value)
+            return {"ok": True, "reply": f"Saved {section}.{key}"}
+        except Exception as e:
+            return {"ok": False, "reply": f"Could not save — {e}"}
+
+    def open_settings_file(self):
+        import os
+        from core import config
+        try:
+            os.startfile(config.SETTINGS_PATH)
+            return {"ok": True, "reply": "Opening settings.json"}
+        except Exception as e:
+            return {"ok": False, "reply": f"Error — {e}"}
+
+    def files_index_count(self):
+        from skills import file_finder
+        return {"ok": True, "count": file_finder.index_count()}
 
     # ---- voice ----
     def _vset(self, **kw):
