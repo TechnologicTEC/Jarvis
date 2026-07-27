@@ -90,6 +90,45 @@ class JarvisApi:
         except Exception as e:
             return {"ok": False, "reply": f"Stocks unavailable — {e}", "holdings": []}
 
+    # ---- inbox / internship tracker ----
+    def inbox_state(self):
+        from skills import email_tracker, excel_sync
+        try:
+            apps = excel_sync.read_applications()
+            return {
+                "ok": True,
+                "gmail": email_tracker.status(),
+                "tracker_ok": bool(apps.get("ok")),
+                "tracker_error": apps.get("error", ""),
+                "applications": apps.get("applications", []),
+                "pending": email_tracker.get_pending(),
+            }
+        except Exception as e:
+            return {"ok": False, "reply": str(e), "applications": [], "pending": []}
+
+    def inbox_connect(self):
+        """One-time OAuth consent. Opens the browser; user-initiated only."""
+        from skills import email_tracker
+        return email_tracker.authorize()
+
+    def inbox_check(self):
+        from skills import email_tracker
+        try:
+            return email_tracker.check_replies()
+        except Exception as e:
+            return {"ok": False, "reply": f"Check failed — {e}", "hits": []}
+
+    def inbox_log(self, company=None):
+        """Confirm a detected reply into the tracker. Never called automatically."""
+        from skills import email_tracker
+        hit = None
+        if company:
+            hit = next((h for h in email_tracker.get_pending()
+                        if h.get("company") == company), None)
+            if hit is None:
+                return {"ok": False, "reply": f"No pending reply for {company}"}
+        return email_tracker.log_it(hit)
+
     # ---- settings ----
     def get_settings(self):
         from core import config
@@ -182,8 +221,16 @@ class JarvisApi:
             "ollama": llm_local.is_available(),
             "everything": file_finder.is_available(),
             "stocks": stocks.is_available(),
-            "gmail_connected": False,
+            "gmail_connected": _gmail_connected(),
         }
+
+
+def _gmail_connected() -> bool:
+    try:
+        from skills import email_tracker
+        return email_tracker.is_authorized()
+    except Exception:
+        return False
 
 
 def _speak_enabled() -> bool:

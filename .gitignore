@@ -11,5 +11,8 @@ config/settings.local.json
 # Runtime state
 *.log
 models/
-.gmail_token.json
-credentials.json
+
+# Google OAuth client + token, and tracker backups — never commit these
+config/gmail_credentials.json
+config/gmail_token.json
+*.jarvis-backup-*.xlsx

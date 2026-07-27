@@ -24,6 +24,12 @@
     "user_email": "user@example.com",
     "readonly_database_url": ""
   },
+  "inbox": {
+    "tracker_path": "C:\\Users\\you\\OneDrive\\Internships.xlsx",
+    "poll_minutes": 45,
+    "lookback_days": 21,
+    "credentials_path": "config\\gmail_credentials.json"
+  },
   "ui": {
     "full_size": [
       1180,

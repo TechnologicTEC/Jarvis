@@ -5,6 +5,7 @@ Run:  python main.py           (opens the full app + tray)
 """
 import argparse
 import threading
+import time
 
 import pystray
 import webview
@@ -65,8 +66,37 @@ def _after_start(show_full_now: bool):
         except Exception:
             pass
 
+    _start_inbox_poller()
+
     if show_full_now:
         windows.show_full()
+
+
+def _start_inbox_poller():
+    """Background Gmail poll from the tray host. Detection only — it surfaces
+    a suggestion and never writes the tracker without an explicit 'log it'."""
+    minutes = int(config.get("inbox", "poll_minutes", default=45) or 45)
+    if minutes <= 0:
+        return
+
+    def loop():
+        from skills import email_tracker
+        while not windows.QUITTING:
+            time.sleep(minutes * 60)
+            if windows.QUITTING:
+                return
+            try:
+                if not email_tracker.is_authorized():
+                    continue
+                res = email_tracker.check_replies()
+                hits = res.get("hits") or []
+                if hits:
+                    print(f"[jarvis] inbox: {len(hits)} reply(ies) detected — "
+                          f"{hits[0]['company']} {hits[0]['outcome']}")
+            except Exception as e:
+                print(f"[jarvis] inbox poll failed: {str(e)[:120]}")
+
+    threading.Thread(target=loop, daemon=True).start()
 
 
 def main():

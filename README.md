@@ -36,7 +36,7 @@ python main.py --tray   # start silent in the tray (what autostart uses)
 | 4 | Router + Ollama fallback | ✅ built — `llama3.2:3b` pulled |
 | 6 | Stocks (Stock_Project `chat_tools`) | ✅ built — read-only, see below |
 | 5 | Voice (faster-whisper + edge-tts) | ✅ built — `base.en`, manual trigger |
-| 7 | Gmail internship tracker + Excel | ⏳ not built — needs Google Cloud OAuth setup |
+| 7 | Gmail internship tracker + Excel | ✅ built — **needs your one-time OAuth setup** |
 
 The full app header shows honest status dots for ollama / everything / gmail, and
 a live portfolio figure. Nothing in the UI is placeholder data any more.
@@ -106,6 +106,45 @@ thread at startup, so the first Alt-to-talk doesn't pay even that — at the cos
 of roughly 300MB resident for the session (the tray app sits at ~540MB with it
 loaded, ~210MB without). Set `voice.preload_model` to `false` to trade that back
 for a ~5s wait on first use.
+
+## Inbox setup (one-time, free)
+
+Everything except the Google authorisation is built and working. The tracker
+side already reads your spreadsheet; only Gmail access needs you:
+
+1. Go to [console.cloud.google.com](https://console.cloud.google.com) and create
+   a project (any name).
+2. **APIs & Services → Library →** enable **Gmail API**.
+3. **APIs & Services → OAuth consent screen →** External, fill in the app name
+   and your email. Add **yourself** as a Test user — that's what lets an
+   unverified personal app sign in.
+4. **Credentials → Create credentials → OAuth client ID → Desktop app.**
+   Download the JSON.
+5. Save it as `config/gmail_credentials.json` (gitignored).
+6. Open Jarvis → **Inbox → connect gmail** and approve. The token is written to
+   `config/gmail_token.json`, also gitignored.
+
+The only scope requested is `gmail.readonly`, so Jarvis cannot send, delete, or
+modify mail even if something goes wrong.
+
+**How detection works.** The tray host polls every `inbox.poll_minutes`
+(default 45). Each recent message is matched against the companies *already in
+your tracker* — by sender domain first, then by the company being named — and
+then against outcome wording (offer / interview / rejected / acknowledged).
+Bulk senders (LinkedIn, Seek, Indeed, newsletters) are dropped first. Jarvis
+never invents a company: no tracker match means no suggestion.
+
+**Nothing is written without you.** A detection only ever produces a
+`Kami — interview  [log it]` card. The Excel write happens on that click (or
+saying "log it") and nowhere else. Before the first write of a session it takes
+a timestamped backup beside the file, only touches the Stage/Status cells of an
+existing company row, and fails with a clear message if the workbook is open in
+Excel rather than half-writing.
+
+One caveat worth knowing: the tracker lives in OneDrive, and openpyxl rewrites
+the whole workbook on save. Plain data survives fine, but charts, images and
+some conditional formatting would not — worth keeping in mind if that sheet
+ever grows beyond a plain table.
 
 ## Known rough edges
 
