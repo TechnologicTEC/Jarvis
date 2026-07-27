@@ -58,6 +58,15 @@ python  main.py --tray  # with a console, for debugging
 `ui.compact_position: "corner"` parks the console bottom-right rather than
 centred.
 
+**Pin** (📌 in the compact header, `ui.pin_compact`) keeps the console above
+other windows when you click away. It is applied through Win32 `SetWindowPos`
+rather than pywebview's `on_top`, which never actually cleared the topmost
+style — so the pin could not be released, and the full-size window was silently
+floating over everything too. The window is also located by process rather than
+by title: `FindWindowW(None, "Jarvis")` matches on title alone and, with a
+leftover instance running, was pinning a window belonging to a different
+process.
+
 **On DPI scaling** — this display is 2880×1800 at 200%, and window placement is
 easy to get wrong there: `resize()`/`move()` take *logical* pixels while
 `webview.screens` and `GetWindowRect` report *physical* ones, so centring with
@@ -222,6 +231,13 @@ all of it is free and key-less:
   `web.weather_location` for the default. Asking for Auckland used to answer
   for "Newton" — wttr.in reports the nearest *weather station*, so it named a
   suburb; Open-Meteo geocodes the place you asked for.
+
+  Handles **which day**: "tomorrow", "on Friday", "the day after tomorrow".
+  Previously every question fetched a one-day forecast and answered with
+  *today*, so "what's the weather tomorrow" quietly disagreed with your phone.
+  It also answers questions that never say the word "weather" — "is it raining
+  tomorrow", "do I need an umbrella", "how hot is it" — which used to fall
+  through to a general web search and come back with something unrelated.
 - **everything else** pools **Tavily** (if a key is set), DuckDuckGo's Instant
   Answer API, Wikipedia and DuckDuckGo results — all four fetched **in
   parallel** — then has the local model answer **from that fetched text only**.

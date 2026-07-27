@@ -78,11 +78,41 @@ def _clean_place(place: str) -> str:
     return _PLACE_TAIL.sub("", place or "").strip(" ,.?'") or ""
 
 
-def weather(place: str = None) -> dict:
-    """Current conditions via Open-Meteo — free, no key, and unlike wttr.in it
-    geocodes properly (asking for Auckland used to answer for "Newton", one of
-    its suburbs, because wttr reported the nearest weather station)."""
+_WEEKDAYS = ("monday", "tuesday", "wednesday", "thursday", "friday",
+             "saturday", "sunday")
+
+
+def day_offset(question: str) -> int:
+    """Which day is being asked about: 0 today, 1 tomorrow, 2+ a weekday.
+
+    Without this "what's the weather tomorrow" answered with today's forecast —
+    the reply even said "today" — which is why it disagreed with a phone.
+    """
+    lc = (question or "").lower()
+    if re.search(r"\b(day after tomorrow)\b", lc):
+        return 2
+    if re.search(r"\btomorrow\b", lc):
+        return 1
+    if re.search(r"\b(today|tonight|now|right now|currently|this (?:morning|"
+                 r"afternoon|evening))\b", lc):
+        return 0
+    m = re.search(r"\b(?:on\s+)?(" + "|".join(_WEEKDAYS) + r")\b", lc)
+    if m:
+        today = datetime.date.today().weekday()
+        target = _WEEKDAYS.index(m.group(1))
+        return (target - today) % 7 or 7
+    return 0
+
+
+def weather(place: str = None, offset: int = 0) -> dict:
+    """Forecast via Open-Meteo — free, no key, and unlike wttr.in it geocodes
+    properly (asking for Auckland used to answer for "Newton", one of its
+    suburbs, because wttr reported the nearest weather station).
+
+    `offset` is days ahead: 0 today, 1 tomorrow.
+    """
     place = _clean_place(place) or _location()
+    offset = max(0, min(6, int(offset or 0)))
     try:
         g = _get("https://geocoding-api.open-meteo.com/v1/search",
                  params={"name": place, "count": 1, "language": "en",
@@ -102,32 +132,54 @@ def weather(place: str = None) -> dict:
                                     "relative_humidity_2m,wind_speed_10m,"
                                     "weather_code,precipitation",
                          "daily": "temperature_2m_min,temperature_2m_max,"
-                                  "precipitation_probability_max",
-                         "timezone": "auto", "forecast_days": 1})
+                                  "precipitation_probability_max,weather_code,"
+                                  "precipitation_sum,wind_speed_10m_max",
+                         "timezone": "auto", "forecast_days": offset + 1})
         data = w.json()
         cur = data.get("current") or {}
         daily = data.get("daily") or {}
 
-        desc = _WMO.get(int(cur.get("weather_code", -1)), "")
-        head = f"{label}{', ' + region if region else ''}: {desc}" if desc else label
-        bits = [head]
-        if cur.get("temperature_2m") is not None:
-            feels = cur.get("apparent_temperature")
-            bits.append(f"{round(cur['temperature_2m'])}°C"
-                        + (f" (feels {round(feels)}°)" if feels is not None else ""))
-        lo = (daily.get("temperature_2m_min") or [None])[0]
-        hi = (daily.get("temperature_2m_max") or [None])[0]
+        def day(field):
+            vals = daily.get(field) or []
+            return vals[offset] if len(vals) > offset else None
+
+        where = f"{label}{', ' + region if region else ''}"
+
+        if offset == 0:
+            # today: lead with what it's doing right now
+            desc = _WMO.get(int(cur.get("weather_code", -1)), "")
+            bits = [f"{where}: {desc}" if desc else where]
+            if cur.get("temperature_2m") is not None:
+                feels = cur.get("apparent_temperature")
+                bits.append(f"{round(cur['temperature_2m'])}°C"
+                            + (f" (feels {round(feels)}°)" if feels is not None else ""))
+            when = "today"
+        else:
+            # a future day has no "now" — describe the day itself
+            desc = _WMO.get(int(day("weather_code") or -1), "")
+            names = {1: "tomorrow", 2: "the day after tomorrow"}
+            target = datetime.date.today() + datetime.timedelta(days=offset)
+            when = names.get(offset) or target.strftime("%A")
+            bits = [f"{where} {when}: {desc}" if desc else f"{where} {when}"]
+
+        lo, hi = day("temperature_2m_min"), day("temperature_2m_max")
         if lo is not None and hi is not None:
-            bits.append(f"today {round(lo)}–{round(hi)}°C")
-        pop = (daily.get("precipitation_probability_max") or [None])[0]
+            bits.append(f"{round(lo)}–{round(hi)}°C"
+                        if offset else f"today {round(lo)}–{round(hi)}°C")
+        pop = day("precipitation_probability_max")
         if pop is not None:
-            bits.append(f"{round(pop)}% chance of rain")
-        if cur.get("relative_humidity_2m") is not None:
+            mm = day("precipitation_sum")
+            rain = f"{round(pop)}% chance of rain"
+            if pop >= 20 and mm:
+                rain += f" ({mm:.0f}mm)" if mm >= 1 else " (light)"
+            bits.append(rain)
+        if offset == 0 and cur.get("relative_humidity_2m") is not None:
             bits.append(f"humidity {round(cur['relative_humidity_2m'])}%")
-        if cur.get("wind_speed_10m") is not None:
-            bits.append(f"wind {round(cur['wind_speed_10m'])} km/h")
+        wind = cur.get("wind_speed_10m") if offset == 0 else day("wind_speed_10m_max")
+        if wind is not None:
+            bits.append(f"wind {round(wind)} km/h")
         return {"ok": True, "intent": "web", "reply": " · ".join(bits),
-                "place": label}
+                "place": label, "offset": offset, "when": when}
     except Exception as e:
         return {"ok": False, "intent": "web",
                 "reply": f"Couldn't reach the weather service — {str(e).splitlines()[0][:70]}"}

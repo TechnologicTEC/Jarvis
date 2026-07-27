@@ -110,6 +110,15 @@ class JarvisApi:
         windows.hide()
         return {"ok": True}
 
+    def get_pinned(self):
+        return {"ok": True, "pinned": windows.pinned(),
+                "topmost": windows.is_topmost()}
+
+    def set_pinned(self, on):
+        state = windows.set_pinned(bool(on))
+        return {"ok": True, "pinned": state,
+                "reply": "Pinned on top" if state else "Unpinned"}
+
     def hotkey_active(self):
         return {"ok": True, "active": bool(windows.HOTKEY_OK)}
 

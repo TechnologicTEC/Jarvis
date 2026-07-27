@@ -80,6 +80,99 @@ class _RECT(ctypes.Structure):
                 ("right", ctypes.c_long), ("bottom", ctypes.c_long)]
 
 
+_HWND_TOPMOST = -1
+_HWND_NOTOPMOST = -2
+_SWP_NOMOVE = 0x0002
+_SWP_NOSIZE = 0x0001
+_SWP_NOACTIVATE = 0x0010
+
+_ENUMPROC = ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.c_void_p, ctypes.c_void_p)
+
+
+def _own_hwnd():
+    """Our own top-level window.
+
+    Deliberately not FindWindowW(None, TITLE): that matches purely on title, so
+    with another Jarvis running (a leftover instance, or a test) it happily
+    returned the *other* process's window — and pinning silently applied to
+    something we don't own.
+    """
+    want_pid = os.getpid()
+    found = []
+
+    def cb(hwnd, _lparam):
+        pid = ctypes.c_ulong()
+        ctypes.windll.user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
+        if pid.value != want_pid:
+            return True
+        n = ctypes.windll.user32.GetWindowTextLengthW(hwnd)
+        if not n:
+            return True
+        buf = ctypes.create_unicode_buffer(n + 1)
+        ctypes.windll.user32.GetWindowTextW(hwnd, buf, n + 1)
+        if buf.value == TITLE:
+            found.append(hwnd)
+            return False
+        return True
+
+    try:
+        ctypes.windll.user32.EnumWindows(_ENUMPROC(cb), 0)
+    except Exception:
+        return None
+    return found[0] if found else None
+
+
+def set_topmost(on: bool) -> bool:
+    """Pin/unpin the window via Win32.
+
+    pywebview's `on_top` property does not reliably clear the topmost style —
+    setting it False left the window still flagged WS_EX_TOPMOST, so the
+    full-size window floated over everything and a pin toggle could never
+    release. SetWindowPos is authoritative.
+    """
+    try:
+        hwnd = _own_hwnd()
+        if not hwnd:
+            return False
+        ctypes.windll.user32.SetWindowPos(
+            ctypes.c_void_p(hwnd), ctypes.c_void_p(_HWND_TOPMOST if on else _HWND_NOTOPMOST),
+            0, 0, 0, 0, _SWP_NOMOVE | _SWP_NOSIZE | _SWP_NOACTIVATE)
+        return True
+    except Exception:
+        return False
+
+
+def is_topmost() -> bool:
+    try:
+        hwnd = _own_hwnd()
+        if not hwnd:
+            return False
+        return bool(ctypes.windll.user32.GetWindowLongW(ctypes.c_void_p(hwnd), -20) & 0x8)
+    except Exception:
+        return False
+
+
+def pinned() -> bool:
+    return bool(config.get("ui", "pin_compact", default=True))
+
+
+def set_pinned(on: bool) -> bool:
+    """Apply the choice now, then remember it.
+
+    Applied first on purpose: the pin should respond even if writing the
+    settings file fails (another process holding it, a read-only checkout).
+    """
+    on = bool(on)
+    if MODE == "compact":
+        set_topmost(on)
+    try:
+        from core import config as _cfg
+        _cfg.set_value("ui", "pin_compact", on)
+    except Exception:
+        pass      # the toggle still worked for this session
+    return on
+
+
 def _window_rect():
     """The window's rect as the OS reports it (physical pixels)."""
     try:
@@ -176,12 +269,12 @@ def set_mode(mode: str, announce=True):
             if not _compact_placed:
                 WIN.move(*_compact_pos(w, h, sw, sh))
                 _compact_placed = True
-            WIN.on_top = True
+            set_topmost(pinned())
         except Exception:
             pass
     else:
         try:
-            WIN.on_top = False
+            set_topmost(False)      # the home-base window shouldn't float
             if config.get("ui", "full_maximised", default=True):
                 WIN.maximize()          # fill the screen, DPI-independent
             else:

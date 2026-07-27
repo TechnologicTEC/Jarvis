@@ -63,6 +63,7 @@ body.compact,body.compact html{background:transparent!important;overflow:hidden}
 <div style="display:flex;align-items:center;gap:8px"><div id="jc-dot" style="width:7px;height:7px;background:#5cc6e8;border-radius:2px;box-shadow:0 0 8px rgba(92,198,232,.8)"></div><div id="jc-title" style="font-size:11px;letter-spacing:.18em;color:#7e8cc0;text-transform:uppercase">jarvis</div></div>
 <div style="display:flex;align-items:center;gap:7px">
 <div id="jc-mode" style="display:flex;align-items:center;gap:6px;font-size:10px;color:#93a2d0;padding:5px 10px;border:1px solid #24305c;border-radius:5px;cursor:pointer;user-select:none"><span id="jc-mode-ic">&#9673;</span> <span id="jc-mode-tx">listen</span></div>
+<div id="jc-pin" title="keep on top" style="font-size:11px;color:#93a2d0;padding:5px 9px;border:1px solid #24305c;border-radius:5px;cursor:pointer;user-select:none">&#128204;</div>
 <div id="jc-expand" title="expand (double-space)" style="font-size:10px;color:#93a2d0;padding:5px 9px;border:1px solid #24305c;border-radius:5px;cursor:pointer;user-select:none">&#9974;</div>
 </div>
 </div>
@@ -779,6 +780,22 @@ body.compact,body.compact html{background:transparent!important;overflow:hidden}
     if(shrink)shrink.addEventListener('click',function(){setLayout('compact');});
     var expand=document.getElementById('jc-expand');
     if(expand)expand.addEventListener('click',function(e){e.stopPropagation();setLayout('full');});
+
+    // ---- pin: keep the console above other windows when you click away ----
+    var pinBtn=document.getElementById('jc-pin'),pinned=true;
+    function paintPin(){if(!pinBtn)return;
+      pinBtn.style.color=pinned?'#061024':'#93a2d0';
+      pinBtn.style.background=pinned?'#5cc6e8':'transparent';
+      pinBtn.style.borderColor=pinned?'#5cc6e8':'#24305c';
+      pinBtn.title=pinned?'pinned on top — click to unpin':'click to keep on top';}
+    function refreshPin(){var a=api();if(!a||!a.get_pinned)return;
+      a.get_pinned().then(function(r){if(r){pinned=!!r.pinned;paintPin();}}).catch(function(){});}
+    if(pinBtn)pinBtn.addEventListener('click',function(e){e.stopPropagation();
+      var a=api();if(!a||!a.set_pinned)return;
+      pinned=!pinned;paintPin();
+      a.set_pinned(pinned).then(function(r){if(r){pinned=!!r.pinned;paintPin();jcSay(r.reply||'');}})
+        .catch(function(){});});
+    paintPin();
     var closeBtn=document.getElementById('jv-close');
     if(closeBtn)closeBtn.addEventListener('click',function(){var a=api();if(a&&a.hide_window)a.hide_window();});
 
@@ -918,7 +935,7 @@ body.compact,body.compact html{background:transparent!important;overflow:hidden}
         dot.style.display=(r&&r.unseen>0)?'block':'none';}).catch(function(){});}
     function markInboxSeen(){var a=api();if(a&&a.inbox_mark_seen)a.inbox_mark_seen().then(refreshInboxBadge).catch(function(){});}
 
-    function bootBackend(){refreshStatus();refreshSetups();refreshPortfolio();buildJcMenu();
+    function bootBackend(){refreshStatus();refreshSetups();refreshPortfolio();refreshPin();buildJcMenu();
       loadQuickFiles();refreshInboxBadge();
       setInterval(refreshStatus,60000);setInterval(refreshPortfolio,120000);
       setInterval(refreshInboxBadge,60000);}

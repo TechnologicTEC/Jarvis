@@ -108,11 +108,15 @@ def route(text: str) -> dict:
         from skills import web
         return web.date_answer()
 
-    # weather
-    m = re.search(r"\bweather\b(?:.*?\b(?:in|for|at)\s+([a-z][a-z \-']{1,28}))?", lc)
-    if m:
+    # weather — "is it raining tomorrow" never mentions the word "weather",
+    # and used to fall through to a plain web search instead of the forecast.
+    if _WEATHER.search(lc):
         from skills import web
-        return web.weather(m.group(1))
+        place = None
+        m = re.search(r"\b(?:in|for|at)\s+([a-z][a-z \-']{1,28})", lc)
+        if m:
+            place = m.group(1)
+        return web.weather(place, offset=web.day_offset(lc))
 
     # Anything factual goes to the web, not the local model. A 3B model asked
     # "who invented the telephone" will answer confidently and sometimes
@@ -220,6 +224,16 @@ def _stocks(q: str, lc: str) -> dict:
 # "make a setup called gaming with discord and youtube"
 # "new setup study: canvas and notion"
 # "create a gaming setup that opens discord and twitch"
+# Weather questions, including the ones that never say "weather".
+_WEATHER = re.compile(
+    r"\bweather\b|\bforecast\b|"
+    r"\b(?:is|will|was|are) ?(?:it|there)?\b.{0,18}\b"
+    r"(rain\w*|snow\w*|sunny|cloudy|windy|storm\w*|hot|cold|freezing|humid)\b|"
+    r"\bhow (?:hot|cold|warm|windy)\b|"
+    r"\b(?:temperature|degrees) (?:in|at|for|today|tomorrow)\b|"
+    r"\bdo i need (?:an? )?(?:umbrella|jacket|coat)\b"
+)
+
 _TABS = {"ask": "Ask", "files": "Files", "stocks": "Stocks", "portfolio": "Stocks",
          "inbox": "Inbox", "mail": "Inbox", "setups": "Setups", "setup": "Setups",
          "settings": "Settings", "preferences": "Settings"}

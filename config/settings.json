@@ -50,6 +50,7 @@
       150
     ],
     "compact_position": "centre",
+    "pin_compact": true,
     "full_maximised": true,
     "open_full_on_start": true,
     "quick_files": [
