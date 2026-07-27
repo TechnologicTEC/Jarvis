@@ -354,8 +354,9 @@ def search(query: str) -> dict:
     # Tavily when configured: it returns extracted page text and often a
     # direct answer, which is far better grounding material than snippets.
     if tav and tav.get("answer"):
-        return {"ok": True, "intent": "web",
-                "reply": tav["answer"] + " (Tavily)",
+        # The source name is kept in the payload for the UI, not tacked onto
+        # the sentence — spoken aloud, "...since 1944. Tavily." is just noise.
+        return {"ok": True, "intent": "web", "reply": tav["answer"],
                 "url": tav.get("url", ""), "source": "Tavily", "grounded": True}
 
     hit = out.get("instant")
@@ -384,12 +385,10 @@ def search(query: str) -> dict:
 
     grounded = _ground(query, context)
     if grounded:
-        return {"ok": True, "intent": "web",
-                "reply": grounded + (f" ({source})" if source else ""),
+        return {"ok": True, "intent": "web", "reply": grounded,
                 "url": url, "source": source, "grounded": True}
 
     best = (hit or wiki or {}).get("text") or (parts[0] if parts else "")
     text = best if len(best) <= 420 else best[:417].rsplit(" ", 1)[0] + "…"
-    return {"ok": True, "intent": "web",
-            "reply": text + (f" ({source})" if source else ""),
+    return {"ok": True, "intent": "web", "reply": text,
             "url": url, "source": source, "results": results or []}

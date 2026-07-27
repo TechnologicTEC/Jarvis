@@ -15,7 +15,8 @@ class JarvisApi:
         # animate the timer/level while Whisper records and transcribes.
         self._v_lock = threading.Lock()
         self._v = {"state": "idle", "seconds": 0.0, "level": 0.0,
-                   "transcript": "", "reply": "", "error": ""}
+                   "transcript": "", "reply": "", "error": "", "ack": ""}
+
     # ---- the one entry point both windows funnel text through ----
     def route(self, text):
         try:
@@ -258,7 +259,7 @@ class JarvisApi:
                 return {"ok": False, "reply": "Already listening"}
             self._v = {"state": "transcribing" if captured is not None else "recording",
                        "seconds": 0.0, "level": 0.0,
-                       "transcript": "", "reply": "", "error": ""}
+                       "transcript": "", "reply": "", "error": "", "ack": ""}
 
         def work():
             started = time.time()
@@ -283,7 +284,15 @@ class JarvisApi:
                     return
                 # Distinct states so the UI can stop saying "listening" the
                 # moment you've actually stopped talking.
-                self._vset(transcript=text, state="thinking")
+                ack = _pick_ack(text)
+                self._vset(transcript=text, state="thinking", ack=ack)
+                # Answer straight away that it heard you. Routing can take
+                # several seconds (a web question is ~8s), and silence in that
+                # gap reads as "it didn't hear me". Spoken on its own thread so
+                # it doesn't add to the wait; the real reply cuts it off.
+                if ack and _speak_enabled() and _ack_enabled():
+                    threading.Thread(target=voice.speak, args=(ack,),
+                                     daemon=True).start()
                 result = router.route(text) or {}
                 reply = result.get("reply", "")
                 speaking = bool(reply) and not result.get("silent") and _speak_enabled()
@@ -375,3 +384,29 @@ def _gmail_connected() -> bool:
 def _speak_enabled() -> bool:
     from core import config
     return bool(config.get("voice", "speak_replies", default=True))
+
+
+def _ack_enabled() -> bool:
+    from core import config
+    return bool(config.get("voice", "acknowledge", default=True))
+
+
+# Rotated so it doesn't sound like a recording. Kept short: this is spoken
+# while the real answer is still being worked out.
+_ACKS = ("I'm on that now.", "On it.", "Let me check.",
+         "Looking that up now.", "Give me a second.", "Checking that.")
+_ACK_FAST = ("Sure.", "One moment.")
+_ack_n = [0]
+
+
+def _pick_ack(text: str) -> str:
+    """A short acknowledgement, biased short when the answer will be quick."""
+    import re as _re
+    _ack_n[0] += 1
+    lc = (text or "").lower()
+    # portfolio/file/setup answers come back almost instantly — a long
+    # "let me look that up" would still be talking when the answer lands
+    quick = bool(_re.search(r"\b(stock|portfolio|holding|cash|wallet|"
+                            r"setup|open|launch|stop)\w*\b", lc))
+    pool = _ACK_FAST if quick else _ACKS
+    return pool[_ack_n[0] % len(pool)]

@@ -226,13 +226,18 @@ all of it is free and key-less:
   Answer API, Wikipedia and DuckDuckGo results — all four fetched **in
   parallel** — then has the local model answer **from that fetched text only**.
 
-**Tavily is the recommended upgrade.** It's a search API built for this job:
-it returns extracted page *content* and often a direct answer, where
-DuckDuckGo gives ~30-word snippets — and snippets are exactly what the
-grounding step runs short of. Get a free key at
-[tavily.com](https://tavily.com) and put it in `web.tavily_api_key` (or the
-`TAVILY_API_KEY` environment variable). When Tavily returns a direct answer
-the local model is skipped entirely, so those replies are near-instant.
+**Tavily is the big win.** It returns extracted page *content* and often a
+direct answer, where DuckDuckGo gives ~30-word snippets — and thin snippets
+are exactly what the grounding step runs short of. When it answers directly
+the local model is skipped entirely: measured **2.3–2.7s** with a key against
+**7.9s** without.
+
+> **Put the key in `config/settings.local.json`, never `config/settings.json`.**
+> The latter is committed and this repo is public. `settings.local.json` is
+> gitignored, is layered over the tracked file at load time, and is where
+> `set_setting()` automatically routes anything whose name looks like a secret.
+> A free key comes from [tavily.com](https://tavily.com); `TAVILY_API_KEY` in
+> the environment works too.
 
 Without a key everything still works — Tavily is skipped silently.
 
@@ -245,6 +250,26 @@ passage rather than an invention.
 
 Expect 6-13s for these: it's a couple of HTTP round trips plus local
 inference.
+
+## Knowing it heard you
+
+The orb on **Ask** is the indicator, not decoration:
+
+| State | Orb |
+|---|---|
+| listening | bars track your voice level, ring speeds up, halo breathes |
+| transcribing | bars settle to a slow violet pulse — "got that" |
+| thinking | amber pulse, ring spins fast, shows the acknowledgement |
+| answering | green, quicker rhythm |
+| idle | back to its slow drift, halo off |
+
+As soon as it has your words — before the answer exists — it says so, both on
+screen and aloud ("I'm on that now", "Looking that up now"). A web question
+takes several seconds, and silence in that gap reads as "it didn't hear me".
+The acknowledgement is spoken on its own thread so it adds nothing to the
+wait, and the real reply cuts it off when it arrives. Short questions that
+answer instantly get a short "Sure." instead, so it isn't still talking when
+the answer lands. Turn it off with `voice.acknowledge`.
 
 ## Stopping it talking
 
