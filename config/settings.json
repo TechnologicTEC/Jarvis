@@ -22,6 +22,7 @@
   "stocks": {
     "project_path": "C:\\Users\\you\\Documents\\StockProject\\Stock_Project",
     "user_email": "user@example.com",
+    "source": "live",
     "readonly_database_url": ""
   },
   "inbox": {
@@ -39,6 +40,8 @@
       440,
       150
     ],
+    "compact_position": "centre",
+    "full_maximised": true,
     "open_full_on_start": true,
     "quick_files": [
       {

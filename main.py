@@ -75,6 +75,18 @@ def _after_start(show_full_now: bool):
         except Exception:
             pass
 
+    # Warm the stocks path too. Against the hosted DB a cold portfolio read is
+    # ~30s (per-ticker cache lookups are network round trips, plus live
+    # quotes); doing it now means the first question answers in ~1s.
+    if config.get("stocks", "warm_on_start", default=True):
+        def _warm_stocks():
+            try:
+                from skills import stocks
+                stocks.summary()
+            except Exception as e:
+                print(f"[jarvis] stocks warm-up failed: {str(e)[:120]}")
+        threading.Thread(target=_warm_stocks, daemon=True).start()
+
     _start_inbox_poller()
 
     if show_full_now:

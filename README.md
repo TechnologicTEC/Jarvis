@@ -37,9 +37,22 @@ python main.py --tray   # silent in the tray (what the Startup shortcut uses)
 
 | | Full | Compact |
 |---|---|---|
-| Size | 1180×760, centred | ~440×158, bottom-right, always-on-top |
+| Size | maximised, fills the screen | ~440×158, always-on-top |
 | Shows | Everything — nav rail, tabs, composer | The command console only |
 | Switch to it | double-space, or `⇱` in the header | double-space, or the tray |
+
+`ui.full_maximised: false` gives a windowed full mode instead;
+`ui.compact_position: "corner"` parks the console bottom-right rather than
+centred.
+
+**On DPI scaling** — this display is 2880×1800 at 200%, and window placement is
+easy to get wrong there: `resize()`/`move()` take *logical* pixels while
+`webview.screens` and `GetWindowRect` report *physical* ones, so centring with
+the physical width threw both windows off the bottom-right of the screen. The
+DPI APIs aren't a reliable fix either — `GetDpiForSystem()` returns 96 until
+the process happens to declare awareness and 192 after, so the answer depends
+on when you ask. Jarvis instead measures the ratio once, on first show, by
+resizing to a known size and reading back the rect.
 
 The window is frameless in both (the design draws its own header), so the
 header is a `.pywebview-drag-region` — drag it to move the window. In compact
@@ -92,6 +105,31 @@ All six nav tabs are built and read from the live backend:
   preload) that write straight to `settings.json`, plus read-only status for
   Ollama, Everything, Stock_Project and Gmail.
 
+## Stocks — live data, leaderboard and creator signals
+
+`stocks.source` decides which database Jarvis reads:
+
+- **`live`** (default) — the hosted Supabase Postgres that
+  [the site](https://delta247-investment-project.hf.space/) and the scheduled
+  GitHub Actions write to. This is the **only** place the S&P 500 leaderboard
+  and Creator Signals exist; the local SQLite copy has zero rows for both.
+- **`local`** — the project's own SQLite file. Portfolio only, no Actions output.
+
+What you can ask for:
+
+| Ask | Source |
+|---|---|
+| "what's the leaderboard", "top picks" | weekly S&P 500 screen (503 names, ranked, scored) |
+| "how is MU ranked" | that ticker's rank/score/recommendation |
+| "creator mentions" | most-mentioned tickers across tracked creators |
+| "recent creator videos" | latest videos and the tickers each discussed |
+
+Each live query is a ~0.8s round trip to us-east-1 and the underlying data only
+refreshes weekly (leaderboard) or daily (creators), so results are cached in
+memory for 15 minutes. A cold portfolio read is ~30s — every per-ticker cache
+lookup becomes a network hop — so `main.py` warms it in the background at
+startup and the first real question answers in about a second.
+
 ## Stocks integration — how the read-only guarantee works
 
 `skills/stocks.py` reuses Stock_Project's own `engine/chat_tools.py` rather than
@@ -100,9 +138,17 @@ reimplementing anything, but it can never write your portfolio:
 - **SQLite** (your current `DATABASE_URL`) is opened in URI `mode=ro`, so the
   driver itself rejects writes. There is a test for this — a deliberate UPDATE
   must fail.
-- **Postgres**, if you ever switch `DATABASE_URL` over, gets every connection
-  pinned to `TRANSACTION READ ONLY` — the equivalent of the `copilot_app`
-  least-privilege role pattern in `scripts/setup_app_role.py`.
+- **Postgres** (the live source) uses SQLAlchemy's `postgresql_readonly`
+  execution option, which emits `SET TRANSACTION READ ONLY` inside each
+  transaction. Verified against the live database: an `UPDATE` is rejected with
+  `ReadOnlySqlTransaction`.
+
+  Two approaches that *look* right were tested and **do not work** through
+  Supabase's connection pooler — both let writes through:
+  `SET SESSION CHARACTERISTICS AS TRANSACTION READ ONLY` on connect (it only
+  affects later transactions, and the pooler hands out a different backend),
+  and the libpq startup option `-c default_transaction_read_only=on` (swallowed
+  by the pooler). Don't "simplify" to either of those.
 - It never calls `auth.apply_login()` or `init_db()`; both write (user upsert,
   `last_login_at`, DDL). The portfolio owner is resolved with a plain SELECT
   and set as the scoping context directly.
@@ -149,8 +195,10 @@ marked `?` rather than failing silently when clicked.
 
 Manual trigger, never always-on: the mic only opens when you ask for it.
 
-- **Compact console** — the `listen` toggle (or Alt).
-- **Full app** — click the mic ring, or press Alt.
+- **Compact console** — the `listen` toggle, or press **`v`**.
+- **Full app** — click the mic ring, or press **`v`**.
+- `v`, not Alt: Alt fires on every alt-tab, so switching windows was toggling
+  the mic. `v` is ignored while you're mid-command.
 - **You don't press anything to send.** Recording ends by itself after ~1.2s of
   silence, transcribes, routes and answers — one Alt to start, then just talk
   and stop. It's capped at 15s so nothing holds the mic open. The transcript

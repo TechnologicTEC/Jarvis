@@ -73,7 +73,7 @@ body.compact,body.compact html{background:transparent!important;overflow:hidden}
 <div id="jc-foot" style="font-size:10px;color:#4a5590">&#9166; run &#183; space space &#183; expand</div>
 <div id="jc-menu" style="position:absolute;left:14px;bottom:44px;width:236px;background:#0b1224;border:1px solid #24305c;border-radius:9px;box-shadow:0 18px 40px rgba(3,8,24,.7);overflow:hidden;opacity:0;transform:translateY(6px);pointer-events:none;transition:opacity .16s,transform .16s;z-index:30"></div>
 </div>
-<div id="jc-toast" style="position:absolute;left:50%;top:52px;transform:translateX(-50%) translateY(-6px);opacity:0;transition:opacity .22s,transform .22s;pointer-events:none;display:flex;align-items:center;gap:8px;padding:9px 14px;border-radius:8px;border:1px solid #24305c;background:rgba(11,18,36,.97);box-shadow:0 12px 30px rgba(3,8,24,.6);font-size:11px;color:#eef4ff;z-index:40;max-width:392px"><div style="width:6px;height:6px;border-radius:50%;background:#8fdcf2;box-shadow:0 0 8px rgba(143,220,242,.7);flex:none"></div><span id="jc-toast-text">Ready</span></div>
+<div id="jc-toast" style="position:absolute;left:50%;top:52px;transform:translateX(-50%) translateY(-6px);opacity:0;transition:opacity .22s,transform .22s;pointer-events:none;display:flex;align-items:flex-start;gap:8px;padding:10px 14px;border-radius:9px;border:1px solid #24305c;background:rgba(11,18,36,.98);box-shadow:0 12px 30px rgba(3,8,24,.6);font-size:11px;line-height:1.55;color:#eef4ff;z-index:40;width:408px;text-align:left"><div style="width:6px;height:6px;border-radius:50%;background:#8fdcf2;box-shadow:0 0 8px rgba(143,220,242,.7);flex:none;margin-top:5px"></div><span id="jc-toast-text" style="white-space:pre-wrap;word-break:break-word">Ready</span></div>
 </div>
 </div>
 
@@ -211,7 +211,7 @@ body.compact,body.compact html{background:transparent!important;overflow:hidden}
 <div style="background:rgba(190,215,255,.05);border:1px solid rgba(150,180,235,.16);border-radius:16px;backdrop-filter:blur(12px);overflow:hidden">
 <div style="display:flex;align-items:center;gap:16px;padding:8px 8px 8px 20px">
 <div style="font:300 22px/1 'Space Grotesk',sans-serif;color:#5cc6e8">&#8250;</div>
-<input id="jv-input" autocomplete="off" placeholder="Ask anything, or press Alt to talk" style="flex:1;min-width:0;border:none;outline:none;background:transparent;font:300 20px/1.2 'Space Grotesk',sans-serif;color:#eef4ff;padding:12px 0" />
+<input id="jv-input" autocomplete="off" placeholder="Ask anything, or press V to talk" style="flex:1;min-width:0;border:none;outline:none;background:transparent;font:300 20px/1.2 'Space Grotesk',sans-serif;color:#eef4ff;padding:12px 0" />
 <div style="display:flex;align-items:center;gap:3px;padding-right:8px">
 <div style="width:3px;height:11px;background:#3f7fbe;border-radius:2px;animation:bar 1.25s ease-in-out infinite"></div>
 <div style="width:3px;height:17px;background:#5cc6e8;border-radius:2px;animation:bar 1.25s ease-in-out infinite;animation-delay:.1s"></div>
@@ -245,7 +245,7 @@ body.compact,body.compact html{background:transparent!important;overflow:hidden}
 <div style="display:flex;align-items:center;justify-content:space-between"><div style="font:500 14.5px/1.1 'Space Grotesk',sans-serif;color:#c4cfee">Applications</div><div style="font:600 9.5px/1 'JetBrains Mono',monospace;color:#93a2d0;border:1px solid rgba(150,180,235,.2);padding:3px 6px;border-radius:3px">4</div></div>
 <div style="font:400 10px/1 'JetBrains Mono',monospace;color:#7e8cc0">tracker &#183; gmail &#183; 2 new</div>
 </div>
-<div style="width:92px;border:1px dashed rgba(150,180,235,.2);border-radius:14px;display:flex;align-items:center;justify-content:center">
+<div id="jv-card-new" class="jv-tog" style="width:92px;border:1px dashed rgba(150,180,235,.2);border-radius:14px;display:flex;align-items:center;justify-content:center">
 <div style="font:400 12px/1 'Space Grotesk',sans-serif;color:#7e8cc0">+ New</div>
 </div>
 </div>
@@ -254,7 +254,7 @@ body.compact,body.compact html{background:transparent!important;overflow:hidden}
 <div>esc esc &#183; hide to tray</div>
 </div>
 </div>
-<div id="jv-toast" style="position:absolute;left:50%;bottom:96px;transform:translateX(-50%) translateY(8px);opacity:0;transition:opacity .25s,transform .25s;pointer-events:none;display:flex;align-items:center;gap:10px;padding:12px 20px;border-radius:999px;border:1px solid rgba(92,198,232,.5);background:rgba(92,198,232,.14);backdrop-filter:blur(14px);box-shadow:0 18px 40px rgba(3,8,24,.6);font:400 12.5px/1 'Space Grotesk',sans-serif;color:#eef4ff;z-index:20"><div style="width:7px;height:7px;border-radius:50%;background:#8fdcf2;box-shadow:0 0 10px rgba(143,220,242,.7)"></div><span id="jv-toast-text">Ready</span></div>
+<div id="jv-toast" style="position:absolute;left:50%;bottom:96px;transform:translateX(-50%) translateY(8px);opacity:0;transition:opacity .25s,transform .25s;pointer-events:none;display:flex;align-items:flex-start;gap:10px;padding:13px 22px;border-radius:18px;border:1px solid rgba(92,198,232,.5);background:rgba(92,198,232,.16);backdrop-filter:blur(14px);box-shadow:0 18px 40px rgba(3,8,24,.6);font:400 12.5px/1.55 'Space Grotesk',sans-serif;color:#eef4ff;z-index:20;max-width:min(880px,86%);text-align:left"><div style="width:7px;height:7px;border-radius:50%;background:#8fdcf2;box-shadow:0 0 10px rgba(143,220,242,.7);flex:none;margin-top:6px"></div><span id="jv-toast-text" style="white-space:pre-wrap;word-break:break-word">Ready</span></div>
 </div>
 <script>
 (function(){
@@ -270,7 +270,10 @@ body.compact,body.compact html{background:transparent!important;overflow:hidden}
     var toast=document.getElementById('jv-toast');
     var toastText=document.getElementById('jv-toast-text');
     var toastTimer=null;
-    function say(t){toastText.textContent=t;toast.style.opacity='1';toast.style.transform='translateX(-50%) translateY(0)';clearTimeout(toastTimer);toastTimer=setTimeout(function(){toast.style.opacity='0';toast.style.transform='translateX(-50%) translateY(8px)';},3200);}
+    // Long replies need long enough to actually read — scale with length
+    // (~14 chars/sec reading speed) rather than a fixed 3.2s.
+    function holdFor(t){return Math.min(22000,Math.max(3200,String(t||'').length*72));}
+    function say(t){toastText.textContent=t;toast.style.opacity='1';toast.style.transform='translateX(-50%) translateY(0)';clearTimeout(toastTimer);toastTimer=setTimeout(function(){toast.style.opacity='0';toast.style.transform='translateX(-50%) translateY(8px)';},holdFor(t));}
     function api(){return (window.pywebview&&window.pywebview.api)||null;}
     var order=['Code','Study','Chill','Applications'];
     function launch(name){var a=api();if(!a){say('Launching '+name+' (backend not connected)');return;}a.launch_setup(name).then(function(r){say((r&&r.reply)||'Done');}).catch(function(){say('Something went wrong');});}
@@ -295,7 +298,7 @@ body.compact,body.compact html{background:transparent!important;overflow:hidden}
             setListening(false);}
         }).catch(function(){stopPoll();});},180);
       }).catch(function(){caption.textContent='voice failed';});}
-    function setListening(on){listening=on;if(on){dot.style.background='#8fdcf2';dot.style.animation='pulse 1.5s ease-in-out infinite';stateEl.textContent='Listening';stateEl.style.color='#8fdcf2';startVoice();}else{stopPoll();var a=api();if(a&&a.voice_stop)a.voice_stop();dot.style.background='#4a5590';dot.style.animation='none';dot.style.transform='scale(1)';stateEl.textContent='Muted';stateEl.style.color='#6f81b5';caption.textContent='click the dot or press alt to listen';}}
+    function setListening(on){listening=on;if(on){dot.style.background='#8fdcf2';dot.style.animation='pulse 1.5s ease-in-out infinite';stateEl.textContent='Listening';stateEl.style.color='#8fdcf2';startVoice();}else{stopPoll();var a=api();if(a&&a.voice_stop)a.voice_stop();dot.style.background='#4a5590';dot.style.animation='none';dot.style.transform='scale(1)';stateEl.textContent='Muted';stateEl.style.color='#6f81b5';caption.textContent='click the dot or press v to listen';}}
     setListening(false);
     mic.addEventListener('click',function(){setListening(!listening);});
     var navs=[].slice.call(document.querySelectorAll('.jv-nav'));
@@ -458,6 +461,10 @@ body.compact,body.compact html{background:transparent!important;overflow:hidden}
     function closeEditor(){if(edBox)edBox.style.display='none';edCurrent=[];}
     var edNew=document.getElementById('jv-setup-new');
     if(edNew)edNew.addEventListener('click',openNewSetup);
+    // The "+ New" card on the home row jumps to Setups and opens the editor.
+    var cardNew=document.getElementById('jv-card-new');
+    if(cardNew)cardNew.addEventListener('click',function(){
+      activateNav('Setups');showTab('Setups');setTimeout(openNewSetup,140);});
     var edCancel=document.getElementById('jv-setup-cancel');
     if(edCancel)edCancel.addEventListener('click',closeEditor);
     function inferSetup(){var a=api();if(!a||!a.infer_setup)return;
@@ -597,7 +604,10 @@ body.compact,body.compact html{background:transparent!important;overflow:hidden}
       // two handlers racing on the same keystroke re-showed the window.
       if(e.key==='Escape'){toast.style.opacity='0';return;}
       if(document.activeElement===input||document.activeElement===search)return;
-      if('1234'.includes(e.key)){launch(order[parseInt(e.key,10)-1]);}else if(e.key==='Alt'){setListening(!listening);}});
+      // 'v' for voice, not Alt — Alt fires on every alt-tab, which was
+      // toggling the mic whenever you switched windows.
+      if('1234'.includes(e.key)){launch(order[parseInt(e.key,10)-1]);}
+      else if(e.key==='v'||e.key==='V'){setListening(!listening);}});
     var clock=document.getElementById('jv-clock');
     function tick(){if(!clock)return;var d=new Date();var days=['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];clock.textContent=days[d.getDay()]+' '+('0'+d.getHours()).slice(-2)+':'+('0'+d.getMinutes()).slice(-2);}
     tick();setInterval(tick,20000);
@@ -624,7 +634,8 @@ body.compact,body.compact html{background:transparent!important;overflow:hidden}
     var jcToastTimer=null;
     function jcSay(t){if(!jc.toastText)return;jc.toastText.textContent=t;jc.toast.style.opacity='1';
       jc.toast.style.transform='translateX(-50%) translateY(0)';clearTimeout(jcToastTimer);
-      jcToastTimer=setTimeout(function(){jc.toast.style.opacity='0';jc.toast.style.transform='translateX(-50%) translateY(-6px)';},3400);}
+      jcToastTimer=setTimeout(function(){jc.toast.style.opacity='0';jc.toast.style.transform='translateX(-50%) translateY(-6px)';},
+        Math.min(22000,Math.max(3400,String(t||'').length*72)));}
 
     var layout='full';
     // Only the HEIGHT is measured and reported. Width stays whatever Python
@@ -660,6 +671,15 @@ body.compact,body.compact html{background:transparent!important;overflow:hidden}
     if(jc.input)jc.input.addEventListener('keydown',function(e){
       if(e.key==='Enter'){e.preventDefault();jcRoute(jc.input.value);}
       else if(e.key==='Escape'){if(jcMenuOpen){closeJcMenu();}else if(jc.input.value){jc.input.value='';}}});
+    // 'v' toggles listening in compact mode too, when not mid-command
+    document.addEventListener('keydown',function(e){
+      if(e.key!=='v'&&e.key!=='V')return;
+      if(!document.body.classList.contains('compact'))return;
+      var el=document.activeElement;
+      if(el&&(el.tagName==='INPUT'||el.tagName==='TEXTAREA')&&String(el.value||'')!=='')return;
+      e.preventDefault();
+      if(el&&el.tagName==='INPUT')el.value='';
+      jcSetMode(!jcListening);});
 
     // compact setups menu, built from the real app_setups.json
     var jcMenuOpen=false;

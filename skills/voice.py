@@ -200,14 +200,22 @@ def speak(text: str) -> dict:
     return {"ok": False, "engine": None}
 
 
+_play_seq = 0
+_play_proc = None
+
+
 def _speak_edge(text: str) -> bool:
     """edge-tts writes an mp3; play it without pulling in a media library."""
+    global _play_seq
     try:
         import asyncio
 
         import edge_tts
 
-        path = os.path.join(tempfile.gettempdir(), "jarvis_tts.mp3")
+        # A fresh file per utterance: a fixed name got overwritten mid-playback
+        # when two replies landed close together.
+        _play_seq += 1
+        path = os.path.join(tempfile.gettempdir(), f"jarvis_tts_{_play_seq % 6}.mp3")
 
         async def go():
             await edge_tts.Communicate(text, _voice_name()).save(path)
@@ -222,20 +230,45 @@ def _speak_edge(text: str) -> bool:
 
 
 def _play(path: str):
-    """Play a file via PowerShell's MediaPlayer — no extra dependency."""
+    """Play a file via PowerShell's MediaPlayer — no extra dependency.
+
+    MediaPlayer.Open() is asynchronous: NaturalDuration is not populated for a
+    beat afterwards. Reading it too early yields 00:00:00, so the old code slept
+    ~1s and closed the player mid-sentence — you heard only the first word.
+    Wait for HasTimeSpan before trusting the duration.
+    """
+    global _play_proc
+    stop_speaking()  # cut off a previous reply still being read out
     ps = (
         "Add-Type -AssemblyName presentationCore;"
         "$p=New-Object System.Windows.Media.MediaPlayer;"
         f"$p.Open([uri]'{path}');"
-        "Start-Sleep -Milliseconds 400;"
+        "$n=0; while(-not $p.NaturalDuration.HasTimeSpan -and $n -lt 60)"
+        "{Start-Sleep -Milliseconds 50; $n++};"
+        "$d = if($p.NaturalDuration.HasTimeSpan)"
+        "{$p.NaturalDuration.TimeSpan.TotalSeconds}else{20};"
         "$p.Play();"
-        "Start-Sleep -Seconds ([math]::Ceiling($p.NaturalDuration.TimeSpan.TotalSeconds)+1);"
-        "$p.Close()"
+        "Start-Sleep -Milliseconds ([int](($d + 0.7) * 1000));"
+        "$p.Stop(); $p.Close()"
     )
-    subprocess.Popen(
-        ["powershell", "-NoProfile", "-NonInteractive", "-Command", ps],
-        creationflags=subprocess.CREATE_NO_WINDOW,
-    )
+    try:
+        _play_proc = subprocess.Popen(
+            ["powershell", "-NoProfile", "-NonInteractive", "-Command", ps],
+            creationflags=subprocess.CREATE_NO_WINDOW,
+        )
+    except Exception:
+        _play_proc = None
+
+
+def stop_speaking():
+    """Silence any in-progress playback."""
+    global _play_proc
+    if _play_proc is not None and _play_proc.poll() is None:
+        try:
+            _play_proc.terminate()
+        except Exception:
+            pass
+    _play_proc = None
 
 
 def _speak_pyttsx3(text: str) -> bool:

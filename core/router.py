@@ -87,7 +87,11 @@ _QUESTION = re.compile(
 _STOCK_WORDS = re.compile(
     r"\b(stocks?|portfolio|hold(?:s|ing|ings)?|mover?s?|moving|shares?|positions?|"
     r"wallet|cash|market|invest\w*|sharpe|beta|drawdown|diversif\w*|risk|"
-    r"gain(?:s|ed)?|loss(?:es)?|profit)\b"
+    r"gain\w*|loss(?:es)?|profit|winners?|losers?|"
+    # leaderboard / screener (hosted DB)
+    r"leaderboard|screener|screen|rank\w*|picks?|s&?p ?500|sp500|"
+    # creator signals (hosted DB)
+    r"creators?|youtubers?|influencers?|mentions?|tickers?)\b"
 )
 
 # Portfolio questions with no stock noun in them ("am i up or down today").
@@ -106,6 +110,16 @@ def _stocks(q: str, lc: str) -> dict:
     """Sub-route a stock question to the cheapest tool that answers it."""
     from skills import stocks
     try:
+        # Creator Signals and the S&P 500 leaderboard, both from the hosted DB
+        if re.search(r"\b(creator|youtuber|influencer|mentions?)\b", lc):
+            if re.search(r"\b(recent|latest|new|video)\b", lc):
+                return stocks.creator_recent()
+            return stocks.creator_leaderboard()
+        if re.search(r"\b(leaderboard|screener|screen|rank(?:ed|ing)?|top picks?|"
+                     r"best stocks?|s&?p ?500|sp500)\b", lc):
+            sym = _mentioned_ticker(q, lc, held_only=False)
+            return stocks.leaderboard(ticker_filter=sym)
+
         sym = _mentioned_ticker(q, lc)
         if sym:
             return stocks.ticker(sym)
@@ -113,7 +127,8 @@ def _stocks(q: str, lc: str) -> dict:
         # news (~25s cold), so plain "what's moving" gets the fast answer.
         if re.search(r"\bwhy\b", lc) or re.search(r"\bnews\b", lc):
             return stocks.why_moving()
-        if re.search(r"\b(movers?|moving|best|worst|gainers?|losers?)\b", lc):
+        if re.search(r"\b(movers?|moving|best|worst|gain\w*|los(?:ers?|ing)|"
+                     r"winners?|up|down)\b", lc):
             return stocks.movers()
         if re.search(r"\b(biggest|largest|top)\b", lc):
             return stocks.biggest()
@@ -157,22 +172,31 @@ def _mail(lc: str) -> dict:
                 "reply": f"Inbox unavailable — {str(e).splitlines()[0][:110]}"}
 
 
-def _mentioned_ticker(q: str, lc: str):
-    """A ticker the user holds, if the phrasing really is about that stock.
+def _mentioned_ticker(q: str, lc: str, held_only=True):
+    """A ticker in the question, if the phrasing really is about that stock.
 
     Requires either the symbol written in caps ("how is PLTR doing") or a
     stock-context word nearby, so a holding like FLY doesn't hijack
     "how do I fly to Auckland".
+
+    held_only=False accepts any all-caps symbol, for leaderboard lookups about
+    stocks the user doesn't own.
     """
     from skills import stocks
-    try:
-        held = {h["ticker"] for h in stocks.holdings().get("holdings", [])}
-    except Exception:
+    if held_only:
+        try:
+            held = {h["ticker"] for h in stocks.holdings().get("holdings", [])}
+        except Exception:
+            return None
+        if not held:
+            return None
+        for token in re.findall(r"\b[A-Za-z]{1,5}\b", q):
+            sym = token.upper()
+            if sym in held and (token.isupper() or _TICKER_CONTEXT.search(lc)):
+                return sym
         return None
-    if not held:
-        return None
-    for token in re.findall(r"\b[A-Za-z]{1,5}\b", q):
-        sym = token.upper()
-        if sym in held and (token.isupper() or _TICKER_CONTEXT.search(lc)):
-            return sym
+
+    for token in re.findall(r"\b[A-Z]{2,5}\b", q):
+        if token not in ("S&P", "SP", "ETF", "CEO", "IPO", "USD", "NZD", "AI"):
+            return token
     return None

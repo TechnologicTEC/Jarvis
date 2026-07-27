@@ -30,21 +30,36 @@ def _project_path() -> str:
     return os.path.expandvars(p) if p else ""
 
 
+def _env_value(project: str, key: str) -> str:
+    env_file = os.path.join(project, ".env")
+    if not os.path.isfile(env_file):
+        return ""
+    with open(env_file, encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if line.startswith(key + "="):
+                return line.split("=", 1)[1].strip().strip('"').strip("'")
+    return ""
+
+
 def _readonly_url(project: str) -> str:
-    """Turn the project's configured DATABASE_URL into one that cannot write."""
+    """Turn the project's configured DATABASE_URL into one that cannot write.
+
+    `stocks.source` picks which database:
+      live  — the hosted Supabase Postgres the website and the scheduled
+              GitHub Actions write to. This is the only place the S&P 500
+              leaderboard and Creator Signals exist.
+      local — the project's own SQLite file (dev copy; no Actions output).
+    """
     override = config.get("stocks", "readonly_database_url", default="")
     if override:
         return os.path.expandvars(override)
 
-    url = ""
-    env_file = os.path.join(project, ".env")
-    if os.path.isfile(env_file):
-        with open(env_file, encoding="utf-8") as f:
-            for line in f:
-                line = line.strip()
-                if line.startswith("DATABASE_URL="):
-                    url = line.split("=", 1)[1].strip().strip('"').strip("'")
-                    break
+    source = (config.get("stocks", "source", default="live") or "live").lower()
+    if source == "live":
+        url = _env_value(project, "ADMIN_DATABASE_URL") or _env_value(project, "DATABASE_URL")
+    else:
+        url = _env_value(project, "DATABASE_URL")
     if not url:
         url = "sqlite:///db/investment.db"
 
@@ -77,15 +92,13 @@ def _ensure_loaded():
                 sys.path.insert(0, project)
 
             from db import session as db_session
-            from sqlalchemy import event, text
+            from sqlalchemy import text
 
+            # Postgres needs the read-only guard applied when the ENGINE is
+            # built, so rebuild it here rather than patching afterwards.
+            if os.environ["DATABASE_URL"].startswith("postgres"):
+                _configure_readonly_postgres(db_session)
             engine = db_session.get_engine()
-            if engine.url.get_backend_name() == "postgresql":
-                @event.listens_for(engine, "connect")
-                def _force_read_only(dbapi_conn, _rec):
-                    cur = dbapi_conn.cursor()
-                    cur.execute("SET SESSION CHARACTERISTICS AS TRANSACTION READ ONLY")
-                    cur.close()
 
             # Resolve the portfolio owner with a read-only SELECT. Deliberately
             # not auth.apply_login(), which upserts the user and stamps a login.
@@ -111,6 +124,39 @@ def _ensure_loaded():
             _loaded = True
         except Exception as e:
             _load_error = str(e)
+
+
+def _configure_readonly_postgres(db_session):
+    """Rebuild Stock_Project's engine so Postgres rejects every write.
+
+    Two approaches that LOOK right do not work through Supabase's connection
+    pooler, and both were verified failing against the live database:
+
+      * `SET SESSION CHARACTERISTICS AS TRANSACTION READ ONLY` on connect —
+        it only affects *later* transactions, and the pooler hands out a
+        different backend anyway. Writes went through.
+      * the libpq startup option `-c default_transaction_read_only=on` —
+        swallowed by the pooler. Writes went through.
+
+    SQLAlchemy's `postgresql_readonly` execution option is what holds: it emits
+    `SET TRANSACTION READ ONLY` inside each transaction, so the server rejects
+    the write itself with ReadOnlySqlTransaction.
+    """
+    from sqlalchemy import create_engine
+    from sqlalchemy.orm import sessionmaker
+
+    url = os.environ["DATABASE_URL"]
+    engine = create_engine(
+        url,
+        pool_pre_ping=True,
+        pool_recycle=300,
+        connect_args={"connect_timeout": 20,
+                      "options": "-c default_transaction_read_only=on"},
+        execution_options={"postgresql_readonly": True},
+    )
+    db_session._engine = engine
+    db_session._SessionLocal = sessionmaker(bind=engine, expire_on_commit=False)
+    return engine
 
 
 def _install_readonly_cache_shim():
@@ -221,6 +267,21 @@ def summary() -> dict:
         bits.append(f"{_money(day)} today ({_pct(day_pct)})")
     if gl_pct is not None:
         bits.append(f"{_pct(gl_pct)} overall")
+
+    # A one-line total is thin for "how are my stocks" — add what's driving it.
+    try:
+        m = t.get_todays_movers()
+        best, worst = m.get("best"), m.get("worst")
+        if best and best.get("day_change_pct") is not None:
+            bits.append(f"best {best['ticker']} {_pct(best['day_change_pct'])}")
+        if worst and worst is not best and worst.get("day_change_pct") is not None:
+            bits.append(f"worst {worst['ticker']} {_pct(worst['day_change_pct'])}")
+        held = [h for h in t.get_holdings()]
+        if held:
+            bits.append(f"{len(held)} holdings")
+    except Exception:
+        pass
+
     return {
         "ok": True, "intent": "stocks", "reply": " · ".join(bits),
         "total_value": total, "invested_value": val.get("invested_value"),
@@ -229,20 +290,30 @@ def summary() -> dict:
     }
 
 
-def movers() -> dict:
+def movers(limit: int = 3) -> dict:
+    """Today's movers — the top and bottom few, not just one of each."""
     t = _scoped()
     m = t.get_todays_movers()
-    best, worst = m.get("best"), m.get("worst")
-    if not best and not worst:
+    ranked = [r for r in (m.get("ranked_desc") or []) if r.get("day_change_pct") is not None]
+    if not ranked:
         return {"ok": True, "intent": "stocks",
                 "reply": "No live price moves right now — the market may be closed."}
+
+    ups = [r for r in ranked if r["day_change_pct"] > 0][:limit]
+    downs = [r for r in ranked if r["day_change_pct"] < 0][-limit:]
+
+    def fmt(rows):
+        return ", ".join(f"{r['ticker']} {_pct(r['day_change_pct'])}" for r in rows)
+
     parts = []
-    if best:
-        parts.append(f"best {best['ticker']} {_pct(best['day_change_pct'])}")
-    if worst and worst is not best:
-        parts.append(f"worst {worst['ticker']} {_pct(worst['day_change_pct'])}")
-    return {"ok": True, "intent": "stocks", "reply": "Today — " + ", ".join(parts),
-            "ranked": m.get("ranked_desc", [])}
+    if ups:
+        parts.append(f"Up: {fmt(ups)}")
+    if downs:
+        parts.append(f"Down: {fmt(list(reversed(downs)))}")
+    green, red = len(ups), len(downs)
+    parts.append(f"{green} up, {red} down of {len(ranked)}")
+    return {"ok": True, "intent": "stocks", "reply": " · ".join(parts),
+            "ranked": ranked}
 
 
 def holdings() -> dict:
@@ -255,17 +326,27 @@ def holdings() -> dict:
             "reply": f"{len(hs)} holdings — {top}", "holdings": hs}
 
 
-def biggest() -> dict:
+def biggest(limit: int = 3) -> dict:
+    """Largest positions — with the runners-up, since 'biggest' invites context."""
     t = _scoped()
-    h = t.get_biggest_holding()
-    if not h:
+    hs = t.get_holdings()
+    if not hs:
         return {"ok": True, "intent": "stocks", "reply": "No holdings on record."}
-    bits = [f"Biggest: {h['ticker']} {_money(h['market_value'])}"]
+    h = hs[0]
+    bits = [f"Biggest is {h['ticker']} at {_money(h['market_value'])}"]
     if h.get("weight_pct") is not None:
-        bits.append(f"{h['weight_pct']:.1f}% of portfolio")
+        bits.append(f"{h['weight_pct']:.1f}% of the portfolio")
     if h.get("day_change_pct") is not None:
         bits.append(f"{_pct(h['day_change_pct'])} today")
-    return {"ok": True, "intent": "stocks", "reply": " · ".join(bits), "holding": h}
+    if h.get("gain_loss_pct") is not None:
+        bits.append(f"{_pct(h['gain_loss_pct'])} overall")
+    reply = ", ".join(bits) + "."
+    others = hs[1:max(1, limit)]
+    if others:
+        reply += " Then " + ", ".join(
+            f"{o['ticker']} at {o['weight_pct']:.1f}%" for o in others
+            if o.get("weight_pct") is not None) + "."
+    return {"ok": True, "intent": "stocks", "reply": reply, "holding": h, "holdings": hs}
 
 
 def health() -> dict:
@@ -302,6 +383,110 @@ def why_moving() -> dict:
     if head:
         reply += f" — {head[:110]}"
     return {"ok": True, "intent": "stocks", "reply": reply, "movers": ms}
+
+
+# ---------------------------------------------------------------------------
+# S&P 500 leaderboard and Creator Signals.
+#
+# Both are produced by Stock_Project's scheduled GitHub Actions and only exist
+# in the hosted database — the local SQLite copy has none of it. Each live
+# query is a ~0.8s round trip to us-east-1, and the underlying data refreshes
+# weekly (leaderboard) or daily (creators), so results are cached in memory.
+# ---------------------------------------------------------------------------
+
+_mem: dict = {}
+
+
+def _cached(key: str, ttl: float, produce):
+    import time
+    hit = _mem.get(key)
+    if hit and (time.time() - hit[0]) < ttl:
+        return hit[1]
+    value = produce()
+    _mem[key] = (time.time(), value)
+    return value
+
+
+def leaderboard(limit: int = 5, ticker_filter: str = None) -> dict:
+    """The weekly ranked S&P 500 screen from the Actions run."""
+    _scoped()
+
+    def produce():
+        from engine import screener
+        return screener.load_leaderboard()
+
+    data = _cached("leaderboard", 900, produce)
+    if not data:
+        return {"ok": False, "intent": "stocks",
+                "reply": "No S&P 500 leaderboard cached yet — the weekly Action may not have run."}
+    rows = data.get("rows") or []
+    if not rows:
+        return {"ok": False, "intent": "stocks", "reply": "The leaderboard is empty."}
+
+    if ticker_filter:
+        sym = ticker_filter.upper()
+        hit = next((r for r in rows if (r.get("ticker") or "").upper() == sym), None)
+        if not hit:
+            return {"ok": True, "intent": "stocks",
+                    "reply": f"{sym} isn't in the S&P 500 leaderboard.", "rows": rows}
+        return {"ok": True, "intent": "stocks", "rows": rows, "generated": data.get("generated_at"),
+                "reply": f"{sym} ranks #{hit.get('rank')} of {len(rows)} — "
+                         f"score {hit.get('score')}, {hit.get('recommendation')}"}
+
+    top = rows[:max(1, limit)]
+    listing = ", ".join(
+        f"#{r.get('rank')} {r.get('ticker')} {r.get('score')} ({r.get('recommendation')})"
+        for r in top)
+    when = (data.get("generated_at") or "")[:10]
+    return {"ok": True, "intent": "stocks", "rows": rows, "generated": data.get("generated_at"),
+            "reply": f"S&P 500 leaderboard{' · ' + when if when else ''} — {listing}"}
+
+
+def creator_leaderboard(limit: int = 5) -> dict:
+    """Most-mentioned tickers across the tracked creators' recent videos."""
+    _scoped()
+
+    def produce():
+        from engine import creator_signals
+        return creator_signals.mention_leaderboard()
+
+    rows = _cached("creator_lb", 900, produce) or []
+    if not rows:
+        return {"ok": True, "intent": "stocks",
+                "reply": "No creator mentions in the tracking window yet.", "rows": []}
+    top = rows[:max(1, limit)]
+
+    def label(r):
+        t = r.get("ticker")
+        n = r.get("mentions") or r.get("count") or r.get("videos")
+        return f"{t} ×{n}" if n else str(t)
+
+    return {"ok": True, "intent": "stocks", "rows": rows,
+            "reply": "Creator mentions — " + ", ".join(label(r) for r in top)}
+
+
+def creator_recent(limit: int = 5) -> dict:
+    """The latest creator videos and the tickers they mentioned."""
+    _scoped()
+
+    def produce():
+        from engine import creator_signals
+        return creator_signals.recent_signals()
+
+    rows = _cached("creator_recent", 900, produce) or []
+    if not rows:
+        return {"ok": True, "intent": "stocks",
+                "reply": "No recent creator signals.", "rows": []}
+    out = []
+    for v in rows[:max(1, limit)]:
+        # `mentions` is a list of dicts, one per ticker discussed in the video
+        tickers = [m.get("ticker") for m in (v.get("mentions") or []) if m.get("ticker")]
+        line = f"{v.get('creator', '?')}: “{(v.get('title') or '')[:48]}”"
+        if tickers:
+            line += " — " + ", ".join(tickers[:4])
+        out.append(line)
+    return {"ok": True, "intent": "stocks", "rows": rows,
+            "reply": f"{len(rows)} recent creator videos. " + " · ".join(out)}
 
 
 def ticker(sym: str) -> dict:

@@ -15,6 +15,7 @@ page draggable.
 """
 import ctypes
 import os
+import time
 
 import webview
 
@@ -72,13 +73,83 @@ def _on_closing():
 # Mode switching
 # --------------------------------------------------------------------------
 
-def _screen_size():
+class _RECT(ctypes.Structure):
+    _fields_ = [("left", ctypes.c_long), ("top", ctypes.c_long),
+                ("right", ctypes.c_long), ("bottom", ctypes.c_long)]
+
+
+def _window_rect():
+    """The window's rect as the OS reports it (physical pixels)."""
     try:
-        user32 = ctypes.windll.user32
-        user32.SetProcessDPIAware()
-        return user32.GetSystemMetrics(0), user32.GetSystemMetrics(1)
+        hwnd = ctypes.windll.user32.FindWindowW(None, TITLE)
+        if not hwnd:
+            return None
+        rc = _RECT()
+        ctypes.windll.user32.GetWindowRect(hwnd, ctypes.byref(rc))
+        return rc
     except Exception:
-        return 1920, 1080
+        return None
+
+
+_scale = None
+
+
+def _calibrate():
+    """Measure the ratio between the units resize() takes and physical pixels.
+
+    Getting this from the DPI APIs is unreliable: GetDpiForSystem reports 96
+    until the process happens to declare DPI awareness and 192 afterwards, so
+    the answer depends on when you ask. Meanwhile resize()/move() take logical
+    pixels while webview.screens reports physical ones — a 2x error on this
+    200%-scaled display, which is what threw the window off-screen. Measuring
+    once sidesteps every one of those assumptions.
+    """
+    global _scale
+    if _scale is not None or WIN is None:
+        return _scale or 1.0
+    try:
+        probe_w, probe_h = 600, 400
+        WIN.resize(probe_w, probe_h)
+        time.sleep(0.25)
+        rc = _window_rect()
+        if rc:
+            got = rc.right - rc.left
+            ratio = got / float(probe_w)
+            # only trust a sane, near-standard scale
+            _scale = ratio if 0.5 <= ratio <= 4.0 else 1.0
+        else:
+            _scale = 1.0
+    except Exception:
+        _scale = 1.0
+    return _scale
+
+
+def _screen_size():
+    """Screen size in the SAME coordinate space as Window.move()/resize()."""
+    phys = None
+    try:
+        screens = webview.screens
+        if screens and screens[0].width and screens[0].height:
+            phys = (int(screens[0].width), int(screens[0].height))
+    except Exception:
+        pass
+    if phys is None:
+        try:
+            user32 = ctypes.windll.user32
+            phys = (user32.GetSystemMetrics(0), user32.GetSystemMetrics(1))
+        except Exception:
+            return 1440, 900
+    scale = _scale or 1.0
+    return max(640, int(phys[0] / scale)), max(480, int(phys[1] / scale))
+
+
+def _compact_pos(w, h, sw, sh):
+    """Where the pinned console sits. Centred by default so it can't land
+    off-screen; 'corner' parks it bottom-right once you know where it goes."""
+    where = config.get("ui", "compact_position", default="centre")
+    if where in ("corner", "bottom-right"):
+        return max(0, sw - w - 28), max(0, sh - h - 92)
+    return max(0, (sw - w) // 2), max(0, (sh - h) // 3)
 
 
 def set_mode(mode: str, announce=True):
@@ -96,17 +167,22 @@ def set_mode(mode: str, announce=True):
     if mode == "compact":
         w, h = _compact_size or _compact_default()
         try:
+            WIN.restore()               # leave maximised state before shrinking
             WIN.resize(w, h)
-            WIN.move(max(0, sw - w - 28), max(0, sh - h - 92))
+            WIN.move(*_compact_pos(w, h, sw, sh))
             WIN.on_top = True
         except Exception:
             pass
     else:
-        w, h = _full_size()
         try:
             WIN.on_top = False
-            WIN.resize(w, h)
-            WIN.move(max(0, (sw - w) // 2), max(0, (sh - h) // 2 - 20))
+            if config.get("ui", "full_maximised", default=True):
+                WIN.maximize()          # fill the screen, DPI-independent
+            else:
+                w, h = _full_size()
+                WIN.restore()
+                WIN.resize(w, h)
+                WIN.move(max(0, (sw - w) // 2), max(0, (sh - h) // 2 - 20))
         except Exception:
             pass
 
@@ -125,6 +201,17 @@ def toggle_mode():
     return set_mode("full" if MODE == "compact" else "compact")
 
 
+def _reposition_compact(w, h):
+    if WIN is None:
+        return
+    sw, sh = _screen_size()
+    try:
+        WIN.resize(w, h)
+        WIN.move(*_compact_pos(w, h, sw, sh))
+    except Exception:
+        pass
+
+
 def set_compact_height(h: int):
     """Called from JS once the compact card has rendered, so the window hugs
     the card exactly and no dead space shows around it.
@@ -136,13 +223,8 @@ def set_compact_height(h: int):
     w = (_compact_size or _compact_default())[0]
     h = max(90, min(600, int(h)))
     _compact_size = (w, h)
-    if MODE == "compact" and WIN is not None:
-        sw, sh = _screen_size()
-        try:
-            WIN.resize(w, h)
-            WIN.move(max(0, sw - w - 28), max(0, sh - h - 92))
-        except Exception:
-            pass
+    if MODE == "compact":
+        _reposition_compact(w, h)
     return {"ok": True, "w": w, "h": h}
 
 
@@ -154,14 +236,12 @@ def show(mode: str = None):
     global _visible
     if WIN is None:
         return
-    if mode:
-        set_mode(mode)
+    # Show BEFORE sizing: maximize()/move() are no-ops on a hidden window, so
+    # doing it the other way round left the window at its default geometry.
     WIN.show()
-    try:
-        WIN.restore()
-    except Exception:
-        pass
     _visible = True
+    _calibrate()          # needs a visible window; runs once
+    set_mode(mode or MODE)
     _focus_input()
 
 
