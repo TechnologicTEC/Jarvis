@@ -275,10 +275,11 @@ class JarvisApi:
                                reply="Didn't catch that — try again")
                     return
                 self._vset(transcript=text)
-                result = router.route(text)
-                reply = (result or {}).get("reply", "")
-                self._vset(state="done", reply=reply)
-                if reply and _speak_enabled():
+                result = router.route(text) or {}
+                reply = result.get("reply", "")
+                self._vset(state="done", reply=reply,
+                           nav=result.get("tab", ""), silent=bool(result.get("silent")))
+                if reply and not result.get("silent") and _speak_enabled():
                     voice.speak(reply)
             except Exception as e:
                 self._vset(state="error", error=str(e)[:200],
@@ -320,8 +321,14 @@ class JarvisApi:
         return {"ok": True, "reply": "Wake word off"}
 
     def _on_wake(self):
-        """Wake word heard: surface the window and start capturing."""
+        """Wake word heard: stop talking, surface the window, start capturing.
+
+        Silencing first is what makes "Hey Jarvis, stop" work mid-sentence —
+        and stops Jarvis transcribing its own voice.
+        """
         try:
+            from skills import voice
+            voice.stop_speaking()
             if not windows.is_visible():
                 windows.show("compact")
             self.voice_start()

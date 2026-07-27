@@ -180,21 +180,80 @@ def _install_readonly_cache_shim():
 
     mem: dict = {}
     now_fn = _cache._utcnow
+    preloaded = [False]
+
+    def _preload():
+        """Pull the whole quote/profile cache in ONE query.
+
+        Against the hosted database each cache lookup is a ~0.8s round trip, so
+        checking per ticker turned a portfolio read into 10+ seconds of pure
+        latency. One query up front makes it a single hop.
+        """
+        if preloaded[0]:
+            return
+        preloaded[0] = True
+        try:
+            with get_session() as session:
+                rows = session.query(ApiCache).filter(
+                    ApiCache.cache_key.like("quote:%")
+                    | ApiCache.cache_key.like("profile:%")
+                    | ApiCache.cache_key.like("leaderboard:%")
+                ).all()
+                for row in rows:
+                    try:
+                        mem[row.cache_key] = (row.fetched_at, json.loads(row.value_json))
+                    except Exception:
+                        continue
+        except Exception:
+            pass
+
+    # Stale-while-revalidate. Quotes have a 5-minute TTL, and refreshing 11 of
+    # them one at a time over the network is ~30s of waiting. Jarvis is a
+    # glance-and-go assistant, so a slightly old price returned instantly beats
+    # a fresh one half a minute later: serve what we have, refresh behind it.
+    max_stale = timedelta(seconds=int(
+        config.get("stocks", "max_stale_seconds", default=1800) or 1800))
+    refreshing: set = set()
+
+    def _bg_refresh(cache_key, fetch_fn):
+        if cache_key in refreshing:
+            return
+        refreshing.add(cache_key)
+
+        def go():
+            try:
+                mem[cache_key] = (now_fn(), fetch_fn())
+            except Exception:
+                pass
+            finally:
+                refreshing.discard(cache_key)
+
+        threading.Thread(target=go, daemon=True).start()
 
     def get_or_fetch(cache_key, ttl_seconds, fetch_fn):
         now = now_fn()
+        if not preloaded[0] and cache_key.split(":", 1)[0] in ("quote", "profile", "leaderboard"):
+            _preload()
+
         hit = mem.get(cache_key)
-        if hit is not None and now - hit[0] < timedelta(seconds=ttl_seconds):
-            return hit[1]
-        try:
-            with get_session() as session:
-                row = session.get(ApiCache, cache_key)
-                if row is not None and now - row.fetched_at < timedelta(seconds=ttl_seconds):
-                    value = json.loads(row.value_json)
-                    mem[cache_key] = (row.fetched_at, value)
-                    return value
-        except Exception:
-            pass  # cache unreadable is not fatal — just fetch fresh
+        if hit is None:
+            try:
+                with get_session() as session:
+                    row = session.get(ApiCache, cache_key)
+                    if row is not None:
+                        hit = (row.fetched_at, json.loads(row.value_json))
+                        mem[cache_key] = hit
+            except Exception:
+                pass  # cache unreadable is not fatal — just fetch fresh
+
+        if hit is not None:
+            age = now - hit[0]
+            if age < timedelta(seconds=ttl_seconds):
+                return hit[1]
+            if age < max_stale:
+                _bg_refresh(cache_key, fetch_fn)   # answer now, update behind
+                return hit[1]
+
         value = fetch_fn()
         mem[cache_key] = (now, value)
         return value
@@ -251,11 +310,33 @@ def _pct(x) -> str:
         return str(x)
 
 
+def _snapshot() -> dict:
+    """Value, performance, holdings and movers in one cached pass.
+
+    summary/holdings/movers/biggest all derive from the same valuation, and
+    each of the underlying chat_tools calls re-runs it *and* opens its own DB
+    session — which against the hosted database is a ~0.8s round trip every
+    time. Gathering once and caching briefly turns four network-bound calls
+    into one.
+    """
+    def produce():
+        t = _scoped()
+        return {
+            "value": t.get_portfolio_value(),
+            "perf": t.get_portfolio_performance(),
+            "holdings": t.get_holdings(),
+            "movers": t.get_todays_movers(),
+        }
+
+    ttl = float(config.get("stocks", "snapshot_seconds", default=60) or 60)
+    return _cached("snapshot", ttl, produce)
+
+
 def summary() -> dict:
     """Total value + today's move — the Stocks tab header and 'how are my stocks'."""
-    t = _scoped()
-    val = t.get_portfolio_value()
-    perf = t.get_portfolio_performance()
+    snap = _snapshot()
+    val = snap["value"]
+    perf = snap["perf"]
     total = val.get("total_value")
     day = perf.get("total_day_change")
     gl_pct = perf.get("total_gain_loss_pct")
@@ -270,15 +351,14 @@ def summary() -> dict:
 
     # A one-line total is thin for "how are my stocks" — add what's driving it.
     try:
-        m = t.get_todays_movers()
+        m = snap["movers"]
         best, worst = m.get("best"), m.get("worst")
         if best and best.get("day_change_pct") is not None:
             bits.append(f"best {best['ticker']} {_pct(best['day_change_pct'])}")
         if worst and worst is not best and worst.get("day_change_pct") is not None:
             bits.append(f"worst {worst['ticker']} {_pct(worst['day_change_pct'])}")
-        held = [h for h in t.get_holdings()]
-        if held:
-            bits.append(f"{len(held)} holdings")
+        if snap["holdings"]:
+            bits.append(f"{len(snap['holdings'])} holdings")
     except Exception:
         pass
 
@@ -292,8 +372,7 @@ def summary() -> dict:
 
 def movers(limit: int = 3) -> dict:
     """Today's movers — the top and bottom few, not just one of each."""
-    t = _scoped()
-    m = t.get_todays_movers()
+    m = _snapshot()["movers"]
     ranked = [r for r in (m.get("ranked_desc") or []) if r.get("day_change_pct") is not None]
     if not ranked:
         return {"ok": True, "intent": "stocks",
@@ -317,8 +396,7 @@ def movers(limit: int = 3) -> dict:
 
 
 def holdings() -> dict:
-    t = _scoped()
-    hs = t.get_holdings()
+    hs = _snapshot()["holdings"]
     if not hs:
         return {"ok": True, "intent": "stocks", "reply": "No holdings on record.", "holdings": []}
     top = ", ".join(f"{h['ticker']} {h['weight_pct']:.0f}%" for h in hs[:4] if h.get("weight_pct"))
@@ -328,8 +406,7 @@ def holdings() -> dict:
 
 def biggest(limit: int = 3) -> dict:
     """Largest positions — with the runners-up, since 'biggest' invites context."""
-    t = _scoped()
-    hs = t.get_holdings()
+    hs = _snapshot()["holdings"]
     if not hs:
         return {"ok": True, "intent": "stocks", "reply": "No holdings on record."}
     h = hs[0]
@@ -397,10 +474,37 @@ def why_moving() -> dict:
 _mem: dict = {}
 
 
+_refreshing: set = set()
+
+
 def _cached(key: str, ttl: float, produce):
+    """Cache with stale-while-revalidate.
+
+    Recomputing a portfolio snapshot costs ~18s against the hosted database, so
+    letting it expire would hand that wait to whoever asked next. Once we have
+    a value, answer from it immediately and refresh behind the scenes; only the
+    very first call (absorbed by the startup warm-up) ever blocks.
+    """
     import time
+
     hit = _mem.get(key)
-    if hit and (time.time() - hit[0]) < ttl:
+    now = time.time()
+    if hit:
+        age = now - hit[0]
+        if age < ttl:
+            return hit[1]
+        if key not in _refreshing:
+            _refreshing.add(key)
+
+            def go():
+                try:
+                    _mem[key] = (time.time(), produce())
+                except Exception:
+                    pass
+                finally:
+                    _refreshing.discard(key)
+
+            threading.Thread(target=go, daemon=True).start()
         return hit[1]
     value = produce()
     _mem[key] = (time.time(), value)
@@ -490,8 +594,8 @@ def creator_recent(limit: int = 5) -> dict:
 
 
 def ticker(sym: str) -> dict:
-    t = _scoped()
-    h = t.get_holding_weight(sym)
+    sym = (sym or "").strip().upper()
+    h = next((x for x in _snapshot()["holdings"] if x.get("ticker") == sym), None)
     if not h:
         return {"ok": True, "intent": "stocks", "reply": f"You don't hold {sym.upper()}."}
     bits = [f"{h['ticker']}: {_money(h['market_value'])}"]

@@ -1,16 +1,48 @@
 {
   "code": [
-    { "type": "app", "path": "%LOCALAPPDATA%\\Programs\\Microsoft VS Code\\Code.exe" },
-    { "type": "store", "aumid": "Claude_pzs8sxrjxfjjc!Claude" },
-    { "type": "app", "path": "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe" }
+    {
+      "type": "app",
+      "path": "%LOCALAPPDATA%\\Programs\\Microsoft VS Code\\Code.exe"
+    },
+    {
+      "type": "store",
+      "aumid": "Claude_pzs8sxrjxfjjc!Claude"
+    },
+    {
+      "type": "app",
+      "path": "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe"
+    }
   ],
   "study": [
-    { "type": "url", "target": "canvas.auckland.ac.nz", "browser": "chrome" }
+    {
+      "type": "url",
+      "target": "canvas.auckland.ac.nz",
+      "browser": "chrome"
+    }
   ],
   "chill": [
-    { "type": "url", "target": "https://youtube.com", "browser": "chrome" }
+    {
+      "type": "url",
+      "target": "https://youtube.com",
+      "browser": "chrome"
+    }
   ],
   "applications": [
-    { "type": "url", "target": "https://mail.google.com", "browser": "chrome" }
+    {
+      "type": "url",
+      "target": "https://mail.google.com",
+      "browser": "chrome"
+    }
+  ],
+  "gaming": [
+    {
+      "type": "app",
+      "path": "C:\\Users\\you\\AppData\\Roaming\\Microsoft\\Windows\\Start Menu\\Programs\\Discord Inc\\Discord.lnk"
+    },
+    {
+      "type": "url",
+      "target": "https://youtube.com",
+      "browser": "chrome"
+    }
   ]
 }

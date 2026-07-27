@@ -26,11 +26,24 @@ taskbar, autostart) with none of that. A standalone `Jarvis.exe` is possible
 later via PyInstaller; it's deferred because it would need rebuilding after
 every code change while the app is still growing.
 
-Running it manually, if you prefer:
+**Use the shortcut, not a terminal.** The shortcuts run `pythonw.exe`, which
+has no console — and that is not just cosmetic. Started from a terminal, numpy's
+MKL runtime installs a console handler and aborts the whole process the moment
+that window closes:
+
+```
+forrtl: error (200): program aborting due to window-CLOSE event
+```
+
+Jarvis then dies silently in the background, which looks exactly like "the wake
+word stopped working" or "it ignored me". If you do want a terminal for
+debugging, leave it open. Either way `jarvis.log` in the project folder records
+startup and background activity, which is the only visibility you get under
+`pythonw`.
 
 ```powershell
-python main.py          # opens the window + tray icon
-python main.py --tray   # silent in the tray (what the Startup shortcut uses)
+pythonw main.py         # no console (what the shortcuts use)
+python  main.py --tray  # with a console, for debugging
 ```
 
 ## The two sizes
@@ -197,6 +210,34 @@ The chips beside the search bar are real files from `ui.quick_files` in
 `settings.json` — currently `Tech_CV.pdf` and `Internships.xlsx`. Click one to
 open it in its default app. A chip whose file is missing turns red and is
 marked `?` rather than failing silently when clicked.
+
+## Asking about the world
+
+"What's the date", "what's the weather", "who invented the telephone", "how
+tall is Mount Everest" — these go to the internet, not to the local model, and
+all of it is free and key-less:
+
+- **date/time** answered locally, never guessed.
+- **weather** from wttr.in (no key, no account). Set `web.weather_location`.
+- **everything else** pools DuckDuckGo's Instant Answer API, Wikipedia, and
+  DuckDuckGo's HTML results, then has the local model answer **from that
+  fetched text only**.
+
+That last step matters. Retrieval alone finds the right topic but often not the
+answer — Wikipedia returns the "Telephone" article for "who invented the
+telephone". Letting the model read the passage fixes that while keeping it
+anchored to text it was handed, which is the opposite of asking a 3B model to
+recall facts. If the text doesn't contain the answer, you get the source
+passage rather than an invention.
+
+Expect 6-13s for these: it's a couple of HTTP round trips plus local
+inference.
+
+## Stopping it talking
+
+Say **"stop"**, **"be quiet"**, or **"Hey Jarvis, stop"** — or just say the
+wake word again, which silences the current reply before it starts listening.
+That also stops Jarvis transcribing its own voice.
 
 ## Voice
 

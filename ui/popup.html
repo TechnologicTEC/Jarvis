@@ -280,7 +280,14 @@ body.compact,body.compact html{background:transparent!important;overflow:hidden}
     function api(){return (window.pywebview&&window.pywebview.api)||null;}
     var order=['Code','Study','Chill','Applications'];
     function launch(name){var a=api();if(!a){say('Launching '+name+' (backend not connected)');return;}a.launch_setup(name).then(function(r){say((r&&r.reply)||'Done');}).catch(function(){say('Something went wrong');});}
-    function route(q){q=(q||'').trim();if(!q)return;input.value='';var a=api();if(!a){say('Backend not connected — “'+q+'”');return;}say('…');a.route(q).then(function(r){say((r&&r.reply)||'Done');}).catch(function(){say('Something went wrong');});}
+    // A routed reply can also ask the UI to do something (switch tab), or be
+    // deliberately silent (e.g. "stop").
+    function applyResult(r,sayFn){
+      if(!r){sayFn('Done');return;}
+      if(r.intent==='navigate'&&r.tab){activateNav(r.tab);showTab(r.tab);}
+      if(r.silent){return;}
+      sayFn(r.reply||'Done');}
+    function route(q){q=(q||'').trim();if(!q)return;input.value='';var a=api();if(!a){say('Backend not connected — “'+q+'”');return;}say('…');a.route(q).then(function(r){applyResult(r,say);}).catch(function(){say('Something went wrong');});}
     input.addEventListener('keydown',function(e){if(e.key==='Enter'){e.preventDefault();route(input.value);}else if(e.key==='Escape'){input.value='';input.blur();}});
     send.addEventListener('click',function(){route(input.value);input.focus();});
     if(search){search.addEventListener('keydown',function(e){if(e.key==='Enter'){e.preventDefault();var v=search.value.trim();if(v){search.value='';route('find '+v);}}});}
@@ -683,7 +690,10 @@ body.compact,body.compact html{background:transparent!important;overflow:hidden}
     function jcRoute(q){q=(q||'').trim();if(!q)return;jc.input.value='';var a=api();
       if(!a){jcSay('Backend not connected');return;}
       jcSay('…');
-      a.route(q).then(function(r){jcSay((r&&r.reply)||'Done');}).catch(function(){jcSay('Something went wrong');});}
+      a.route(q).then(function(r){
+        if(r&&r.intent==='navigate'){setLayout('full');}
+        applyResult(r,jcSay);
+      }).catch(function(){jcSay('Something went wrong');});}
     if(jc.input)jc.input.addEventListener('keydown',function(e){
       if(e.key==='Enter'){e.preventDefault();jcRoute(jc.input.value);}
       else if(e.key==='Escape'){if(jcMenuOpen){closeJcMenu();}else if(jc.input.value){jc.input.value='';}}});

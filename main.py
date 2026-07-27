@@ -1,4 +1,4 @@
-"""Jarvis tray host — owns the hotkey listener, the tray icon, and both windows.
+"""Jarvis tray host - owns the hotkey listener, the tray icon, and the window.
 
 Run:  python main.py           (opens the full app + tray)
       python main.py --tray    (starts silent in the tray; used by autostart)
@@ -19,6 +19,30 @@ from core.hotkey_listener import HotkeyListener
 TRAY = None
 HOTKEY = None
 API = None
+
+BASE = os.path.dirname(os.path.abspath(__file__))
+LOG_PATH = os.path.join(BASE, "jarvis.log")
+
+
+def log(msg: str):
+    """Print, and always append to jarvis.log.
+
+    Under pythonw there is no console at all, so a file is the only way to see
+    what happened. Launching with a console is worse than useless here: numpy's
+    MKL runtime installs a console handler and aborts the whole process the
+    moment that window closes ("forrtl: error (200)"), which silently killed
+    Jarvis in the background.
+    """
+    line = f"{time.strftime('%Y-%m-%d %H:%M:%S')}  {msg}"
+    try:
+        print(line)
+    except Exception:
+        pass
+    try:
+        with open(LOG_PATH, "a", encoding="utf-8") as f:
+            f.write(line + "\n")
+    except Exception:
+        pass
 
 
 def _tray_image():
@@ -61,12 +85,12 @@ def _after_start(show_full_now: bool):
     )
     windows.HOTKEY_OK = HOTKEY.start()
     if not windows.HOTKEY_OK:
-        print("[jarvis] global hotkey unavailable (keyboard hook failed) — use the tray menu")
+        log("global hotkey unavailable (keyboard hook failed) - use the tray menu")
     TRAY = _build_tray()
     threading.Thread(target=TRAY.run, daemon=True).start()
 
     # Load Whisper now, in the background, so the first Alt-to-talk doesn't
-    # pay the ~5s model load. Costs ~300MB resident for the whole session —
+    # pay the ~5s model load. Costs ~300MB resident for the whole session -
     # set voice.preload_model false to trade that back for a slower first use.
     if (config.get("voice", "enabled", default=True)
             and config.get("voice", "preload_model", default=True)):
@@ -82,11 +106,11 @@ def _after_start(show_full_now: bool):
         try:
             from skills import wake
             if wake.start(API._on_wake):
-                print("[jarvis] listening for “Hey Jarvis”")
+                log('listening for "Hey Jarvis"')
             else:
-                print("[jarvis] wake word unavailable")
+                log("wake word unavailable (mic busy or model missing)")
         except Exception as e:
-            print(f"[jarvis] wake word failed: {str(e)[:120]}")
+            log(f"wake word failed: {str(e)[:120]}")
 
     # Warm the stocks path too. Against the hosted DB a cold portfolio read is
     # ~30s (per-ticker cache lookups are network round trips, plus live
@@ -97,7 +121,7 @@ def _after_start(show_full_now: bool):
                 from skills import stocks
                 stocks.summary()
             except Exception as e:
-                print(f"[jarvis] stocks warm-up failed: {str(e)[:120]}")
+                log(f"stocks warm-up failed: {str(e)[:120]}")
         threading.Thread(target=_warm_stocks, daemon=True).start()
 
     _start_inbox_poller()
@@ -107,7 +131,7 @@ def _after_start(show_full_now: bool):
 
 
 def _start_inbox_poller():
-    """Background Gmail poll from the tray host. Detection only — it surfaces
+    """Background Gmail poll from the tray host. Detection only - it surfaces
     a suggestion and never writes the tracker without an explicit 'log it'."""
     minutes = int(config.get("inbox", "poll_minutes", default=45) or 45)
     if minutes <= 0:
@@ -125,10 +149,10 @@ def _start_inbox_poller():
                 res = email_tracker.check_replies()
                 hits = res.get("hits") or []
                 if hits:
-                    print(f"[jarvis] inbox: {len(hits)} reply(ies) detected — "
+                    log(f"inbox: {len(hits)} reply(ies) detected - "
                           f"{hits[0]['company']} {hits[0]['outcome']}")
             except Exception as e:
-                print(f"[jarvis] inbox poll failed: {str(e)[:120]}")
+                log(f"inbox poll failed: {str(e)[:120]}")
 
     threading.Thread(target=loop, daemon=True).start()
 
@@ -155,3 +179,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+

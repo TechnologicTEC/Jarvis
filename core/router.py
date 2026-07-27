@@ -16,11 +16,30 @@ def route(text: str) -> dict:
         return {"ok": False, "intent": "empty", "reply": ""}
     lc = q.lower()
 
-    # open the full app from the mini / anywhere
+    # "stop" / "be quiet" — silence a reply that's still being read out.
+    # Checked first so it works while Jarvis is mid-sentence.
+    if re.fullmatch(r"(?:hey jarvis[,\s]*)?(stop|quiet|shut up|be quiet|"
+                    r"stop talking|shush|cancel|nevermind|never mind)[.!]?", lc):
+        try:
+            from skills import voice
+            voice.stop_speaking()
+        except Exception:
+            pass
+        return {"ok": True, "intent": "stop", "reply": "", "silent": True}
+
+    # open the full app from the compact console / anywhere
     if re.search(r"\b(open|show|expand)\s+(jarvis|full|app)\b", lc) or lc in ("jarvis", "expand"):
         from core import windows
         windows.show_full()
         return {"ok": True, "intent": "open_full", "reply": "Opening Jarvis"}
+
+    # "open setups", "show me my files", "go to stocks" -> switch tab
+    nav = _nav_target(lc)
+    if nav:
+        from core import windows
+        windows.show("full")
+        return {"ok": True, "intent": "navigate", "tab": nav,
+                "reply": f"Opening {nav}"}
 
     # create/replace a setup by describing it, before the launcher sees it —
     # "make a setup called gaming with discord and youtube" must not launch.
@@ -82,12 +101,53 @@ def route(text: str) -> dict:
         return {"ok": True, "intent": "help",
                 "reply": "Try a setup name (code / study / chill), “find my resume”, or “open jarvis”."}
 
+    # date / time — answered locally, never guessed
+    if re.search(r"\b(?:what(?:'s| is|s)?|tell me)\s+(?:the\s+)?"
+                 r"(?:date|day|time)\b|\bwhat day is it\b|\btoday'?s date\b|"
+                 r"\btime is it\b|\bwhat'?s today\b", lc):
+        from skills import web
+        return web.date_answer()
+
+    # weather
+    m = re.search(r"\bweather\b(?:.*?\b(?:in|for|at)\s+([a-z][a-z \-']{1,28}))?", lc)
+    if m:
+        from skills import web
+        return web.weather(m.group(1))
+
+    # Anything factual goes to the web, not the local model. A 3B model asked
+    # "who invented the telephone" will answer confidently and sometimes
+    # wrongly; a quoted search result is checkable.
+    if _looks_factual(lc):
+        from skills import web
+        res = web.search(q)
+        if res.get("ok"):
+            return res
+
     # everything else → local LLM if it's around
     from core import llm_local
     if llm_local.is_available():
         return {"ok": True, "intent": "llm", "reply": llm_local.ask(q)}
     return {"ok": True, "intent": "unknown",
             "reply": "No matching command — install Ollama (ollama.com) to unlock free-form questions."}
+
+
+# Questions about the world, as opposed to chit-chat or requests to do something.
+_FACTUAL = re.compile(
+    r"^\s*(who|what|when|where|why|how|which|whose|is|are|was|were|does|do|did|can|"
+    r"could|should|tell me|explain|define|look ?up|search|google)\b"
+)
+_NOT_FACTUAL = re.compile(
+    r"\b(my|i|me|jarvis)\b.*\b(file|folder|portfolio|stock|holding|email|inbox|"
+    r"setup|application)s?\b"
+)
+
+
+def _looks_factual(lc: str) -> bool:
+    if not _FACTUAL.match(lc):
+        return False
+    if _NOT_FACTUAL.search(lc):
+        return False      # it's about the user's own stuff, handled above
+    return len(lc.split()) >= 3
 
 
 # Phrasing that makes something a question rather than a command. Used to stop
@@ -160,6 +220,19 @@ def _stocks(q: str, lc: str) -> dict:
 # "make a setup called gaming with discord and youtube"
 # "new setup study: canvas and notion"
 # "create a gaming setup that opens discord and twitch"
+_TABS = {"ask": "Ask", "files": "Files", "stocks": "Stocks", "portfolio": "Stocks",
+         "inbox": "Inbox", "mail": "Inbox", "setups": "Setups", "setup": "Setups",
+         "settings": "Settings", "preferences": "Settings"}
+
+
+def _nav_target(lc: str):
+    """"open setups" / "show my files" / "go to settings" -> which tab."""
+    m = re.match(r"^\s*(?:open|show|go to|take me to|switch to|view|display)\s+"
+                 r"(?:me\s+)?(?:my\s+|the\s+)?([a-z]+)"
+                 r"(?:\s+(?:tab|page|panel|screen))?\s*$", lc)
+    return _TABS.get(m.group(1)) if m else None
+
+
 _MAKE_SETUP = re.compile(
     r"^\s*(?:can you\s+|please\s+)?(?:make|create|add|set ?up|new)\s+"
     r"(?:a|an|the)?\s*(?:new\s+)?"
@@ -250,6 +323,11 @@ def _mentioned_ticker(q: str, lc: str, held_only=True):
     """
     from skills import stocks
     if held_only:
+        # Never trigger a cold Stock_Project load just to test for a ticker:
+        # that cost ~25s on unrelated questions like "what is the date".
+        # Anything genuinely about stocks reaches _stocks() via _STOCK_WORDS.
+        if not stocks._loaded:
+            return None
         try:
             held = {h["ticker"] for h in stocks.holdings().get("holdings", [])}
         except Exception:

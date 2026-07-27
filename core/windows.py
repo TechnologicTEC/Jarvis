@@ -34,6 +34,8 @@ _visible = False
 # Set once the compact view has measured itself in the DOM, so the window can
 # be sized to the card exactly — no dead space around it.
 _compact_size = None
+# The compact window is positioned once; afterwards it stays where it was left.
+_compact_placed = False
 
 
 def _ui(name: str) -> str:
@@ -165,11 +167,15 @@ def set_mode(mode: str, announce=True):
     # reports the wrong height.
     sw, sh = _screen_size()
     if mode == "compact":
+        global _compact_placed
         w, h = _compact_size or _compact_default()
         try:
             WIN.restore()               # leave maximised state before shrinking
             WIN.resize(w, h)
-            WIN.move(*_compact_pos(w, h, sw, sh))
+            # Place it once; after that the window stays where the user put it.
+            if not _compact_placed:
+                WIN.move(*_compact_pos(w, h, sw, sh))
+                _compact_placed = True
             WIN.on_top = True
         except Exception:
             pass
@@ -201,13 +207,18 @@ def toggle_mode():
     return set_mode("full" if MODE == "compact" else "compact")
 
 
-def _reposition_compact(w, h):
+def _resize_compact(w, h):
+    """Resize only — never move.
+
+    Moving here fought the user: opening the setups menu changes the height,
+    and re-positioning on every height change snapped a window they had dragged
+    into a corner straight back to the middle. Position is chosen once, when
+    compact mode is first entered, and is the user's from then on.
+    """
     if WIN is None:
         return
-    sw, sh = _screen_size()
     try:
         WIN.resize(w, h)
-        WIN.move(*_compact_pos(w, h, sw, sh))
     except Exception:
         pass
 
@@ -224,7 +235,7 @@ def set_compact_height(h: int):
     h = max(90, min(600, int(h)))
     _compact_size = (w, h)
     if MODE == "compact":
-        _reposition_compact(w, h)
+        _resize_compact(w, h)
     return {"ok": True, "w": w, "h": h}
 
 

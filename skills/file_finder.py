@@ -4,6 +4,7 @@ Detect-and-prompt: if es.exe isn't reachable the reply tells the user to
 install Everything instead of failing silently.
 """
 import os
+import re
 import shutil
 import subprocess
 
@@ -59,22 +60,73 @@ def index_count() -> int:
         return 0
 
 
+_STOPWORDS = {"my", "the", "a", "an", "file", "files", "document", "doc",
+              "spreadsheet", "folder", "for", "of", "please", "find"}
+
+
+def _es(es: str, args: list):
+    """One es.exe call. Returns (paths, error)."""
+    try:
+        out = subprocess.run(
+            [es, "-n", "200"] + args, capture_output=True, text=True, timeout=6,
+            creationflags=subprocess.CREATE_NO_WINDOW,
+        )
+    except Exception as e:
+        return [], str(e)
+    if out.returncode != 0:
+        # es exits non-zero (code 8) when Everything isn't running in this session
+        return [], "everything_not_running"
+    return [l.strip() for l in out.stdout.splitlines() if l.strip()], None
+
+
+def _run_queries(es: str, query: str):
+    """Try progressively looser searches until something matches.
+
+    A multi-word query has to be passed as separate arguments: handing es.exe
+    one quoted string makes Everything look for that exact phrase, so "tech cv"
+    found nothing at all while the file was sitting there called Tech_CV.pdf.
+    Separate terms are AND-ed, and a wildcard join then catches names where the
+    words run together with a separator.
+    """
+    terms = [t for t in re.split(r"[\s._-]+", query.strip()) if t]
+    meaningful = [t for t in terms if t.lower() not in _STOPWORDS] or terms
+    seen, paths = set(), []
+
+    def add(found):
+        for p in found:
+            if p.lower() not in seen:
+                seen.add(p.lower())
+                paths.append(p)
+
+    attempts = []
+    if len(meaningful) > 1:
+        attempts.append(meaningful)                       # AND of the terms
+        attempts.append(["*" + "*".join(meaningful) + "*"])  # words run together
+    attempts.append([query.strip()])                      # the literal phrase
+    if len(meaningful) == 1 and meaningful[0] != query.strip():
+        attempts.append([meaningful[0]])
+
+    err = None
+    for args in attempts:
+        found, e = _es(es, args)
+        if e:
+            err = e
+            continue
+        add(found)
+        if len(paths) >= 25:
+            break
+    if not paths and err:
+        return [], err
+    return paths, None
+
+
 def search(query: str, limit=5) -> dict:
     es = es_path()
     if not es:
         return {"ok": False, "error": "everything_missing", "results": []}
-    try:
-        out = subprocess.run(
-            [es, "-n", "200", query],
-            capture_output=True, text=True, timeout=5,
-            creationflags=subprocess.CREATE_NO_WINDOW,
-        )
-    except Exception as e:
-        return {"ok": False, "error": str(e), "results": []}
-    if out.returncode != 0:
-        # es exits non-zero (code 8) when Everything isn't running in this session
-        return {"ok": False, "error": "everything_not_running", "results": []}
-    paths = [l.strip() for l in out.stdout.splitlines() if l.strip()]
+    paths, err = _run_queries(es, query)
+    if err:
+        return {"ok": False, "error": err, "results": []}
     paths.sort(key=lambda p: _score(query, p), reverse=True)
     results = [{"name": os.path.basename(p) or p, "path": p} for p in paths[:limit]]
     return {"ok": True, "results": results}
