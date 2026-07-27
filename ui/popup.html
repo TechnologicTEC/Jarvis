@@ -348,7 +348,16 @@ body.compact,body.compact html{background:transparent!important;overflow:hidden}
       if(!a||!a.voice_start){caption.textContent='voice backend unavailable';return;}
       caption.textContent='listening…';
       a.voice_start().then(function(r){if(r&&r.ok===false){caption.textContent=r.reply||'busy';return;}
-        stopPoll();
+        beginVoicePoll();
+      }).catch(function(){caption.textContent='voice failed';});}
+
+    // Polling is split out from starting, because a session can also begin
+    // WITHOUT the UI asking: "Hey Jarvis" starts one in the backend. Until this
+    // was separated the window only ever watched sessions it had kicked off
+    // itself, so a wake-word question ran to completion invisibly.
+    function beginVoicePoll(){var a=api();if(!a||!a.voice_poll)return;
+        if(vpoll)return;
+        listening=true;
         vpoll=setInterval(function(){a.voice_poll().then(function(v){
           if(!v)return;
           var S={recording:['Listening','#8fdcf2'],transcribing:['Transcribing','#c8b6f0'],
@@ -376,11 +385,26 @@ body.compact,body.compact html{background:transparent!important;overflow:hidden}
             orbSet('done',0,'');
             if(v.reply)say(v.reply);
             setListening(false);}
-        }).catch(function(){stopPoll();});},140);
-      }).catch(function(){caption.textContent='voice failed';});}
+        }).catch(function(){stopPoll();});},140);}
+
     function setListening(on){listening=on;if(on){dot.style.background='#8fdcf2';dot.style.animation='pulse 1.5s ease-in-out infinite';stateEl.textContent='Listening';stateEl.style.color='#8fdcf2';orbSet('recording',0,'listening');startVoice();}else{stopPoll();var a=api();if(a&&a.voice_stop)a.voice_stop();dot.style.background='#4a5590';dot.style.animation='none';dot.style.transform='scale(1)';stateEl.textContent='Muted';stateEl.style.color='#6f81b5';caption.textContent='click the dot or press v to listen';orbSet('done',0,'');}}
     setListening(false);
     mic.addEventListener('click',function(){setListening(!listening);});
+
+    // Watch for sessions the backend starts on its own — i.e. "Hey Jarvis".
+    // Cheap (one call/second, and only while nothing is already being shown).
+    setInterval(function(){
+      if(vpoll||jcPoll)return;
+      var a=api();if(!a||!a.voice_poll)return;
+      a.voice_poll().then(function(v){
+        if(!v||vpoll||jcPoll)return;
+        if(v.state==='recording'||v.state==='transcribing'||
+           v.state==='thinking'||v.state==='speaking'){
+          if(document.body.classList.contains('compact')){jcSetMode(true,true);}
+          else{beginVoicePoll();}
+        }
+      }).catch(function(){});
+    },300);
     var navs=[].slice.call(document.querySelectorAll('.jv-nav'));
     function activate(el){navs.forEach(function(n){n.style.background='transparent';n.style.border='none';n.style.color='#93a2d0';n.style.fontWeight='400';});el.style.background='rgba(190,215,255,.14)';el.style.border='1px solid rgba(150,180,235,.2)';el.style.color='#eef4ff';el.style.fontWeight='500';}
     var curTab='Ask';
@@ -816,7 +840,13 @@ body.compact,body.compact html{background:transparent!important;overflow:hidden}
     function jcStartVoice(){var a=api();if(!a||!a.voice_start){jc.hint.textContent='voice unavailable ';return;}
       jc.ts.textContent='';jc.hint.textContent='listening… ';jc.timer.textContent='00:00';
       a.voice_start().then(function(r){if(r&&r.ok===false){jc.hint.textContent=(r.reply||'busy')+' ';return;}
-        jcStopPoll();
+        jcBeginPoll();
+      }).catch(function(){jc.hint.textContent='voice failed ';});}
+
+    // Same split as the full view: a wake-word session is already running in
+    // the backend, so this attaches to it instead of starting another.
+    function jcBeginPoll(){var a=api();if(!a||!a.voice_poll)return;
+        if(jcPoll)return;
         jcPoll=setInterval(function(){a.voice_poll().then(function(v){if(!v)return;
           jc.timer.textContent=jcFmt(v.seconds);
           jcStage(v);
@@ -824,7 +854,7 @@ body.compact,body.compact html{background:transparent!important;overflow:hidden}
           if(v.state==='done'||v.state==='error'){jcStopPoll();jcSetWave(0.25);
             if(v.reply)jcSay(v.reply);
             setTimeout(function(){if(jcListening)jcSetMode(false);},1500);}
-        }).catch(function(){jcStopPoll();});},140);}).catch(function(){jc.hint.textContent='voice failed ';});}
+        }).catch(function(){jcStopPoll();});},140);}
 
     // The console used to read "listening" the whole way through, so there was
     // no way to tell whether it had heard you. Each stage now looks different.
@@ -849,10 +879,13 @@ body.compact,body.compact html{background:transparent!important;overflow:hidden}
       else if(v.state==='transcribing'||v.state==='thinking'){jcSetWave(0.45);}
       else if(v.state==='speaking'){jcSetWave(0.8);}
     }
-    function jcSetMode(on){jcListening=on;
+    // `external` means the session is already running (wake word): show the
+    // listening view and attach, rather than starting a second one.
+    function jcSetMode(on,external){jcListening=on;
       if(on){jc.typeV.style.display='none';jc.listenV.style.display='flex';jc.modeIc.innerHTML='&#9000;';
         jc.modeTx.textContent='type';jc.dot.style.background='#8fdcf2';jc.dot.style.animation='pulse 1.4s ease-in-out infinite';
-        jc.title.textContent='listening';jc.title.style.color='#8fdcf2';jc.foot.innerHTML='pauses &#183; auto-send';jcStartVoice();}
+        jc.title.textContent='listening';jc.title.style.color='#8fdcf2';jc.foot.innerHTML='pauses &#183; auto-send';
+        if(external){jc.ts.textContent='';jc.timer.textContent='00:00';jcBeginPoll();}else{jcStartVoice();}}
       else{jcStopPoll();var a=api();if(a&&a.voice_stop)a.voice_stop();
         jc.listenV.style.display='none';jc.typeV.style.display='flex';jc.modeIc.innerHTML='&#9673;';
         jc.modeTx.textContent='listen';jc.dot.style.animation='none';jc.dot.style.background='#5cc6e8';

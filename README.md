@@ -263,6 +263,12 @@ The orb on **Ask** is the indicator, not decoration:
 | answering | green, quicker rhythm |
 | idle | back to its slow drift, halo off |
 
+This works for **"Hey Jarvis" too**, not just clicking the mic. The window
+polls only while it is showing a session, so one the backend started on its
+own used to run to completion invisibly — Jarvis heard you, answered and spoke,
+and the screen never moved. A light watcher now notices a session it did not
+start and attaches to it.
+
 As soon as it has your words — before the answer exists — it says so, both on
 screen and aloud ("I'm on that now", "Looking that up now"). A web question
 takes several seconds, and silence in that gap reads as "it didn't hear me".
