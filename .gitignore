@@ -1,0 +1,15 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+
+# Local machine overrides (paths, email, model choices) — see config/settings.json
+config/settings.local.json
+
+# Runtime state
+*.log
+models/
+.gmail_token.json
+credentials.json
