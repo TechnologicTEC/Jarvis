@@ -300,13 +300,24 @@ body.compact,body.compact html{background:transparent!important;overflow:hidden}
         stopPoll();
         vpoll=setInterval(function(){a.voice_poll().then(function(v){
           if(!v)return;
-          if(v.state==='recording'){caption.textContent='listening… '+(v.seconds||0).toFixed(0)+'s';dot.style.transform='scale('+(1+0.9*Math.min(1,v.level||0)).toFixed(2)+')';}
-          else if(v.state==='transcribing'){caption.textContent='transcribing…';dot.style.transform='scale(1)';}
+          var S={recording:['Listening','#8fdcf2'],transcribing:['Transcribing','#c8b6f0'],
+                 thinking:['Thinking','#f0d9a0'],speaking:['Speaking','#7fae8c'],
+                 done:['Muted','#6f81b5'],error:['Error','#c98a9b']};
+          var st=S[v.state]||S.done;
+          stateEl.textContent=st[0];stateEl.style.color=st[1];
+          dot.style.background=st[1];
+          dot.style.animation=(v.state==='recording'||v.state==='speaking')?'pulse 1.5s ease-in-out infinite':'none';
+          if(v.state==='recording'){caption.textContent='listening… '+(v.seconds||0).toFixed(0)+'s';
+            dot.style.transform='scale('+(1+0.9*Math.min(1,v.level||0)).toFixed(2)+')';}
+          else{caption.textContent=(v.state==='transcribing')?'transcribing what you said…':
+               (v.state==='thinking')?'working it out…':
+               (v.state==='speaking')?'answering — say “stop” to cut in':caption.textContent;
+            dot.style.transform='scale(1)';}
           if(v.transcript){input.value=v.transcript;}
           if(v.state==='done'||v.state==='error'){stopPoll();dot.style.transform='scale(1)';
             if(v.reply)say(v.reply);
             setListening(false);}
-        }).catch(function(){stopPoll();});},180);
+        }).catch(function(){stopPoll();});},140);
       }).catch(function(){caption.textContent='voice failed';});}
     function setListening(on){listening=on;if(on){dot.style.background='#8fdcf2';dot.style.animation='pulse 1.5s ease-in-out infinite';stateEl.textContent='Listening';stateEl.style.color='#8fdcf2';startVoice();}else{stopPoll();var a=api();if(a&&a.voice_stop)a.voice_stop();dot.style.background='#4a5590';dot.style.animation='none';dot.style.transform='scale(1)';stateEl.textContent='Muted';stateEl.style.color='#6f81b5';caption.textContent='click the dot or press v to listen';}}
     setListening(false);
@@ -747,13 +758,34 @@ body.compact,body.compact html{background:transparent!important;overflow:hidden}
         jcStopPoll();
         jcPoll=setInterval(function(){a.voice_poll().then(function(v){if(!v)return;
           jc.timer.textContent=jcFmt(v.seconds);
-          if(v.state==='recording'){jcSetWave(v.level);jc.hint.textContent='listening… ';}
-          else if(v.state==='transcribing'){jcSetWave(0.2);jc.hint.textContent='thinking… ';}
-          if(v.transcript){jc.ts.textContent=v.transcript;jc.hint.textContent='';}
+          jcStage(v);
+          if(v.transcript){jc.ts.textContent=v.transcript;}
           if(v.state==='done'||v.state==='error'){jcStopPoll();jcSetWave(0.25);
             if(v.reply)jcSay(v.reply);
             setTimeout(function(){if(jcListening)jcSetMode(false);},1500);}
-        }).catch(function(){jcStopPoll();});},180);}).catch(function(){jc.hint.textContent='voice failed ';});}
+        }).catch(function(){jcStopPoll();});},140);}).catch(function(){jc.hint.textContent='voice failed ';});}
+
+    // The console used to read "listening" the whole way through, so there was
+    // no way to tell whether it had heard you. Each stage now looks different.
+    var JC_STAGE={
+      recording:    {label:'listening… ',    colour:'#8fdcf2', title:'listening'},
+      transcribing: {label:'transcribing… ', colour:'#c8b6f0', title:'transcribing'},
+      thinking:     {label:'thinking… ',     colour:'#f0d9a0', title:'thinking'},
+      speaking:     {label:'speaking… ',     colour:'#7fae8c', title:'speaking'},
+      done:         {label:'',               colour:'#5cc6e8', title:'jarvis'},
+      error:        {label:'',               colour:'#c98a9b', title:'error'}
+    };
+    function jcStage(v){
+      var st=JC_STAGE[v.state]||JC_STAGE.done;
+      jc.hint.textContent=v.transcript?'':st.label;
+      if(jc.dot){jc.dot.style.background=st.colour;
+        jc.dot.style.animation=(v.state==='recording'||v.state==='speaking')
+          ?'pulse 1.4s ease-in-out infinite':'none';}
+      if(jc.title){jc.title.textContent=st.title;jc.title.style.color=st.colour;}
+      if(v.state==='recording'){jcSetWave(v.level);}
+      else if(v.state==='transcribing'||v.state==='thinking'){jcSetWave(0.45);}
+      else if(v.state==='speaking'){jcSetWave(0.8);}
+    }
     function jcSetMode(on){jcListening=on;
       if(on){jc.typeV.style.display='none';jc.listenV.style.display='flex';jc.modeIc.innerHTML='&#9000;';
         jc.modeTx.textContent='type';jc.dot.style.background='#8fdcf2';jc.dot.style.animation='pulse 1.4s ease-in-out infinite';

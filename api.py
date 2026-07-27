@@ -274,13 +274,17 @@ class JarvisApi:
                     self._vset(state="done", transcript="",
                                reply="Didn't catch that — try again")
                     return
-                self._vset(transcript=text)
+                # Distinct states so the UI can stop saying "listening" the
+                # moment you've actually stopped talking.
+                self._vset(transcript=text, state="thinking")
                 result = router.route(text) or {}
                 reply = result.get("reply", "")
-                self._vset(state="done", reply=reply,
+                speaking = bool(reply) and not result.get("silent") and _speak_enabled()
+                self._vset(state="speaking" if speaking else "done", reply=reply,
                            nav=result.get("tab", ""), silent=bool(result.get("silent")))
-                if reply and not result.get("silent") and _speak_enabled():
+                if speaking:
                     voice.speak(reply)
+                    self._vset(state="done")
             except Exception as e:
                 self._vset(state="error", error=str(e)[:200],
                            reply=f"Voice failed — {str(e).splitlines()[0][:110]}")

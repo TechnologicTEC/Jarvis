@@ -98,8 +98,14 @@ def _run_queries(es: str, query: str):
                 seen.add(p.lower())
                 paths.append(p)
 
-    attempts = []
+    # Documents first. A bare term like "cv" matches thousands of paths — SDK
+    # folders, caches, .pyc files — and the one PDF you meant never made the
+    # result limit. Restricting the first pass to document types puts real
+    # files at the front; the looser passes below still catch everything else.
+    doc_filter = "ext:pdf;docx;doc;xlsx;xls;pptx;ppt;txt;md;csv;odt;rtf"
+    attempts = [[doc_filter] + meaningful]
     if len(meaningful) > 1:
+        attempts.append([doc_filter, "*" + "*".join(meaningful) + "*"])
         attempts.append(meaningful)                       # AND of the terms
         attempts.append(["*" + "*".join(meaningful) + "*"])  # words run together
     attempts.append([query.strip()])                      # the literal phrase
@@ -148,20 +154,35 @@ def _score(query: str, path: str) -> float:
 
     s = fuzz.WRatio(query, name) if fuzz is not None else (100.0 if lc_q in lc_name else 50.0)
 
-    if lc_name == lc_q or stem.lower() == lc_q:
-        s += 60          # exact filename match is almost always the answer
+    # Compare ignoring separators so "tech cv" matches "Tech_CV" as an exact hit
+    flat_q = re.sub(r"[\s._-]+", "", lc_q)
+    flat_stem = re.sub(r"[\s._-]+", "", stem.lower())
+    # Scale the exact-match reward by how much was actually matched: a folder
+    # literally named "cv" is an exact hit for "find my cv" but far weaker
+    # evidence than "Tech_CV" matching "tech cv", and it used to win.
+    if lc_name == lc_q or flat_stem == flat_q:
+        s += min(90, 18 + 12 * len(flat_q))
+    elif flat_stem.startswith(flat_q):
+        s += min(45, 9 + 6 * len(flat_q))
     elif lc_name.startswith(lc_q):
         s += 25
+
+    # Every query word present in the name beats a partial match elsewhere
+    words = [w for w in re.split(r"[\s._-]+", lc_q) if w]
+    if words and all(w in lc_name for w in words):
+        s += 35
 
     if any(n in lc_path for n in _NOISE):
         s -= 70          # system/library noise
     if ext.lower() in _DOC_EXT:
-        s += 20          # people usually mean a document
+        s += 45          # "find my cv" means the PDF, not a folder called cv
     try:
         if os.path.isdir(path):
-            s -= 25      # prefer the file over the folder containing it
+            s -= 55      # asking to "find X" almost always means a file
     except OSError:
         pass
+    if ext.lower() in (".lnk", ".url", ".tmp", ".bak"):
+        s -= 45          # shortcuts and Recent-items entries, not the real file
     s -= path.count("\\") * 1.5   # shallower paths are likelier to be the user's own
     return s
 

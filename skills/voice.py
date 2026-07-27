@@ -23,8 +23,11 @@ MODEL_DIR = os.path.join(BASE, "models")
 SAMPLE_RATE = 16000
 _BLOCK = 1600           # 100ms blocks
 _SILENCE_RMS = 0.012    # below this counts as silence
-_SILENCE_BLOCKS = 12    # ~1.2s of silence ends the utterance
-_MIN_BLOCKS = 4         # ignore instant blips
+# Dead time you feel directly: nothing happens between you finishing a sentence
+# and this elapsing. Transcription itself is only ~0.6s, so the old 1.2s wait
+# was the single largest chunk of the pause after speaking.
+_SILENCE_BLOCKS = 7     # ~0.7s of silence ends the utterance
+_MIN_BLOCKS = 3         # ignore instant blips
 _MAX_BLOCKS = 150       # ~15s hard cap
 
 _model = None

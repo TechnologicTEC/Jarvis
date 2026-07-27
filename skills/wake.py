@@ -26,6 +26,9 @@ _paused = False
 _lock = threading.Lock()
 _last_fire = 0.0
 _last_score = 0.0
+_frames_seen = 0
+_drops = 0
+_peak_since_reset = [0.0]
 
 
 def _model_name() -> str:
@@ -96,7 +99,9 @@ def start(on_wake) -> bool:
     _running = True
 
     def loop():
-        global _last_fire, _last_score, _running
+        global _last_fire, _last_score, _running, _frames_seen, _drops
+        import queue as _queue
+
         import numpy as np
         import sounddevice as sd
 
@@ -106,22 +111,47 @@ def start(on_wake) -> bool:
                 if _paused:
                     time.sleep(0.15)
                     continue
+                q: "_queue.Queue" = _queue.Queue(maxsize=64)
+
+                def cb(indata, _frames, _time, status):
+                    # Capture must never wait on inference. Blocking reads meant
+                    # that whenever the app was busy (model loading, a network
+                    # call) frames were lost, and openWakeWord needs contiguous
+                    # audio — dropped frames are why the wake word fired only
+                    # sometimes. The callback just enqueues.
+                    if status:
+                        globals()["_drops"] = _drops + 1
+                    try:
+                        q.put_nowait(indata.copy())
+                    except Exception:
+                        globals()["_drops"] = _drops + 1
+
                 try:
                     with sd.InputStream(samplerate=SAMPLE_RATE, channels=1,
-                                        dtype="int16", blocksize=FRAME) as stream:
+                                        dtype="int16", blocksize=FRAME, callback=cb):
                         while _running and not _paused:
-                            frame, _overflow = stream.read(FRAME)
+                            try:
+                                frame = q.get(timeout=0.5)
+                            except Exception:
+                                continue
+                            _frames_seen += 1
                             scores = _model.predict(np.squeeze(frame))
                             score = max(scores.values()) if scores else 0.0
                             _last_score = float(score)
+                            if score > _peak_since_reset[0]:
+                                _peak_since_reset[0] = float(score)
                             now = time.time()
                             if score >= _threshold() and (now - _last_fire) > cooldown:
                                 _last_fire = now
+                                # Pause BEFORE handing over, or the outer loop
+                                # reopens the stream and races the recorder for
+                                # the mic, losing the start of what you say.
+                                pause()
+                                _model.reset()
                                 try:
                                     on_wake()
                                 except Exception:
                                     pass
-                                # the handler takes the mic from here
                                 break
                 except Exception:
                     time.sleep(0.6)   # device busy/unplugged — retry shortly
@@ -147,4 +177,12 @@ def status() -> dict:
         "model": _model_name(),
         "threshold": _threshold(),
         "last_score": round(_last_score, 3),
+        "peak_score": round(_peak_since_reset[0], 3),
+        "frames": _frames_seen,
+        "dropped": _drops,
     }
+
+
+def reset_peak():
+    """Clear the running peak — used by the Settings mic test."""
+    _peak_since_reset[0] = 0.0

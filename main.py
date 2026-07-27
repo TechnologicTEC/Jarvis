@@ -13,7 +13,7 @@ import webview
 from PIL import Image, ImageDraw
 
 from api import JarvisApi
-from core import config, windows
+from core import config, single_instance, windows
 from core.hotkey_listener import HotkeyListener
 
 TRAY = None
@@ -162,6 +162,13 @@ def main():
     ap.add_argument("--tray", action="store_true", help="start hidden in the tray")
     args = ap.parse_args()
 
+    # Refuse to run twice: two copies fight over the mic, the hotkey and the
+    # tray icon. Hand the request to the copy that's already up instead.
+    if not single_instance.acquire():
+        single_instance.summon_existing()
+        log("another instance is already running - summoned it instead")
+        return
+
     show_full_now = (not args.tray) and config.get("ui", "open_full_on_start", default=True)
 
     global API
@@ -175,6 +182,7 @@ def main():
             HOTKEY.stop()
         if TRAY is not None:
             TRAY.stop()
+        single_instance.release()
 
 
 if __name__ == "__main__":
