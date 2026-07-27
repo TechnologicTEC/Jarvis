@@ -257,6 +257,13 @@ class JarvisApi:
         def work():
             started = time.time()
             try:
+                # The wake listener holds the mic; hand the device over.
+                try:
+                    from skills import wake
+                    wake.pause()
+                except Exception:
+                    pass
+
                 def level(rms):
                     self._vset(level=min(1.0, rms * 18), seconds=time.time() - started)
 
@@ -276,6 +283,13 @@ class JarvisApi:
             except Exception as e:
                 self._vset(state="error", error=str(e)[:200],
                            reply=f"Voice failed — {str(e).splitlines()[0][:110]}")
+            finally:
+                try:
+                    from skills import wake
+                    if wake.is_enabled():
+                        wake.resume()
+                except Exception:
+                    pass
 
         threading.Thread(target=work, daemon=True).start()
         return {"ok": True}
@@ -290,8 +304,29 @@ class JarvisApi:
         return {"ok": True}
 
     def voice_status(self):
-        from skills import voice
-        return dict(voice.status(), ok=True)
+        from skills import voice, wake
+        return dict(voice.status(), ok=True, wake=wake.status())
+
+    def set_wake(self, enabled):
+        """Turn the always-on 'Hey Jarvis' listener on or off, live."""
+        from core import config
+        from skills import wake
+        config.set_value("voice", "wake_word", bool(enabled))
+        if enabled:
+            ok = wake.start(self._on_wake)
+            return {"ok": ok, "reply": "Listening for “Hey Jarvis”" if ok
+                    else "Wake word unavailable — check the microphone"}
+        wake.stop()
+        return {"ok": True, "reply": "Wake word off"}
+
+    def _on_wake(self):
+        """Wake word heard: surface the window and start capturing."""
+        try:
+            if not windows.is_visible():
+                windows.show("compact")
+            self.voice_start()
+        except Exception:
+            pass
 
     def speak(self, text):
         from skills import voice

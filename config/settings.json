@@ -9,7 +9,11 @@
     "whisper_model": "base.en",
     "preload_model": true,
     "speak_replies": true,
-    "auto_listen_on_open": false
+    "auto_listen_on_open": false,
+    "wake_word": false,
+    "wake_model": "hey_jarvis_v0.1",
+    "wake_threshold": 0.55,
+    "wake_cooldown": 3.0
   },
   "llm": {
     "ollama_url": "http://127.0.0.1:11434",

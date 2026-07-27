@@ -18,6 +18,7 @@ from core.hotkey_listener import HotkeyListener
 
 TRAY = None
 HOTKEY = None
+API = None
 
 
 def _tray_image():
@@ -75,6 +76,18 @@ def _after_start(show_full_now: bool):
         except Exception:
             pass
 
+    # Always-on "Hey Jarvis". Opt-in: it holds the microphone open.
+    if config.get("voice", "enabled", default=True) and \
+            config.get("voice", "wake_word", default=False):
+        try:
+            from skills import wake
+            if wake.start(API._on_wake):
+                print("[jarvis] listening for “Hey Jarvis”")
+            else:
+                print("[jarvis] wake word unavailable")
+        except Exception as e:
+            print(f"[jarvis] wake word failed: {str(e)[:120]}")
+
     # Warm the stocks path too. Against the hosted DB a cold portfolio read is
     # ~30s (per-ticker cache lookups are network round trips, plus live
     # quotes); doing it now means the first question answers in ~1s.
@@ -127,7 +140,9 @@ def main():
 
     show_full_now = (not args.tray) and config.get("ui", "open_full_on_start", default=True)
 
-    api = JarvisApi()
+    global API
+    API = JarvisApi()
+    api = API
     windows.create_windows(api)
     try:
         webview.start(_after_start, show_full_now)

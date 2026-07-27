@@ -71,8 +71,11 @@ body.compact,body.compact html{background:transparent!important;overflow:hidden}
 <div style="position:relative;display:flex;align-items:center;justify-content:space-between;padding:10px 14px;border-top:1px solid #141c33;background:#0a0f1c">
 <div id="jc-setup-btn" style="display:flex;align-items:center;gap:6px;font-size:10px;color:#93a2d0;padding:5px 9px;border:1px solid #24305c;border-radius:5px;cursor:pointer;user-select:none">setups <span id="jc-caret" style="font-size:8px;color:#5a68a0">&#9662;</span></div>
 <div id="jc-foot" style="font-size:10px;color:#4a5590">&#9166; run &#183; space space &#183; expand</div>
-<div id="jc-menu" style="position:absolute;left:14px;bottom:44px;width:236px;background:#0b1224;border:1px solid #24305c;border-radius:9px;box-shadow:0 18px 40px rgba(3,8,24,.7);overflow:hidden;opacity:0;transform:translateY(6px);pointer-events:none;transition:opacity .16s,transform .16s;z-index:30"></div>
 </div>
+<!-- In the card's normal flow, below the footer: an absolutely-positioned
+     dropdown would be clipped by the ~158px window (and by the card's
+     overflow:hidden). Growing the card instead makes the window grow with it. -->
+<div id="jc-menu" style="display:none;border-top:1px solid #141c33;background:#0b1224"></div>
 <div id="jc-toast" style="position:absolute;left:50%;top:52px;transform:translateX(-50%) translateY(-6px);opacity:0;transition:opacity .22s,transform .22s;pointer-events:none;display:flex;align-items:flex-start;gap:8px;padding:10px 14px;border-radius:9px;border:1px solid #24305c;background:rgba(11,18,36,.98);box-shadow:0 12px 30px rgba(3,8,24,.6);font-size:11px;line-height:1.55;color:#eef4ff;z-index:40;width:408px;text-align:left"><div style="width:6px;height:6px;border-radius:50%;background:#8fdcf2;box-shadow:0 0 8px rgba(143,220,242,.7);flex:none;margin-top:5px"></div><span id="jc-toast-text" style="white-space:pre-wrap;word-break:break-word">Ready</span></div>
 </div>
 </div>
@@ -570,7 +573,13 @@ body.compact,body.compact html{background:transparent!important;overflow:hidden}
           sect('voice')
           +toggle('voice','enabled','Voice enabled',v.enabled!==false)
           +toggle('voice','speak_replies','Speak replies aloud',v.speak_replies!==false)
-          +toggle('voice','auto_listen_on_open','Auto-listen when the mini opens',!!v.auto_listen_on_open)
+          +toggle('voice','auto_listen_on_open','Auto-listen when the console opens',!!v.auto_listen_on_open)
+          +'<div class="jv-row" style="display:flex;align-items:center;justify-content:space-between;padding:11px 16px">'
+          +'<div><div style="font:400 12.5px/1 \'Space Grotesk\',sans-serif;color:#c4cfee">Wake word — say “Hey Jarvis”</div>'
+          +'<div class="jv-hint" style="margin-top:5px;color:#6f81b5">holds the mic open · ~4% of one CPU core · nothing leaves the machine</div></div>'
+          +'<div class="jv-tog" id="jv-wake-toggle" data-on="'+(v.wake_word?'1':'0')+'" style="width:42px;height:22px;border-radius:999px;flex:none;border:1px solid '+(v.wake_word?'rgba(92,198,232,.55)':'rgba(150,180,235,.22)')+';background:'+(v.wake_word?'rgba(92,198,232,.22)':'rgba(190,215,255,.05)')+';position:relative">'
+          +'<div style="position:absolute;top:2px;'+(v.wake_word?'right:3px':'left:3px')+';width:15px;height:15px;border-radius:50%;background:'+(v.wake_word?'#8fdcf2':'#6f81b5')+'"></div></div></div>'
+          +row('Wake word status',(vs.wake&&vs.wake.available)?((vs.wake.running)?'listening':'idle'):'unavailable',dot(!!(vs.wake&&vs.wake.available)))
           +toggle('voice','preload_model','Preload Whisper at startup (~300MB)',v.preload_model!==false)
           +row('Speech-to-text model',v.whisper_model||'base.en')
           +row('Text-to-speech',(v.tts||'edge-tts')+(v.tts==='edge-tts'?'  ('+(v.edge_voice||'')+')':''))
@@ -590,6 +599,13 @@ body.compact,body.compact html{background:transparent!important;overflow:hidden}
           +row('Gmail',sys.gmail_connected?'connected':'not set up (phase 7)',dot(!!sys.gmail_connected))
           +sect('hotkey')
           +row('Summon','double-Esc within '+((st.hotkey&&st.hotkey.double_esc_ms)||400)+'ms');
+        // the wake word starts/stops a live listener, so it has its own handler
+        var wt=document.getElementById('jv-wake-toggle');
+        if(wt)wt.addEventListener('click',function(){
+          var on=wt.getAttribute('data-on')==='1';var a2=api();if(!a2||!a2.set_wake)return;
+          say(on?'Turning wake word off…':'Starting wake word…');
+          a2.set_wake(!on).then(function(r){say((r&&r.reply)||'Done');loadSettings();})
+            .catch(function(){say('Could not change the wake word');});});
         [].slice.call(body.querySelectorAll('.jv-set-toggle')).forEach(function(t){
           t.addEventListener('click',function(){
             var on=t.getAttribute('data-on')==='1',sec=t.getAttribute('data-sec'),key=t.getAttribute('data-key');
@@ -682,11 +698,14 @@ body.compact,body.compact html{background:transparent!important;overflow:hidden}
       jcSetMode(!jcListening);});
 
     // compact setups menu, built from the real app_setups.json
+    // The compact window is only ~158px tall, so a dropdown has nowhere to
+    // render — it was being clipped by the window edge, which is why the
+    // setups list looked missing. Grow the window while the menu is open.
     var jcMenuOpen=false;
-    function openJcMenu(){jcMenuOpen=true;jc.menu.style.opacity='1';jc.menu.style.transform='translateY(0)';
-      jc.menu.style.pointerEvents='auto';jc.caret.innerHTML='&#9652;';}
-    function closeJcMenu(){jcMenuOpen=false;jc.menu.style.opacity='0';jc.menu.style.transform='translateY(6px)';
-      jc.menu.style.pointerEvents='none';jc.caret.innerHTML='&#9662;';}
+    function openJcMenu(){jcMenuOpen=true;jc.menu.style.display='block';jc.caret.innerHTML='&#9650;';
+      requestAnimationFrame(measureCompact);}     // card grew -> grow the window
+    function closeJcMenu(){jcMenuOpen=false;jc.menu.style.display='none';jc.caret.innerHTML='&#9662;';
+      requestAnimationFrame(measureCompact);}     // and shrink back
     function buildJcMenu(){var a=api();if(!a||!a.get_setups_detail||!jc.menu)return;
       a.get_setups_detail().then(function(r){
         var rows=(r&&r.setups)||[],html='';

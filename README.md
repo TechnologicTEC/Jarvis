@@ -166,7 +166,14 @@ holdings, so an unscoped read would look like an empty portfolio.
 
 ## Creating setups without editing JSON
 
-**Setups → + new setup**, then describe it in plain language — *"discord and
+**Just ask.** "Make a setup called gaming with discord and youtube", "new setup
+music: spotify and youtube", "create a writing setup that opens notepad and
+google docs" — typed or spoken. "Delete gaming" removes one. Creation is
+checked *before* the launcher, so asking to make a setup never launches
+anything, and plain "code" still launches as before.
+
+Or use the UI: **Setups → + new setup** (also the **+ New** card on the home
+row), then describe it in plain language — *"discord and
 youtube"*, *"gaming: steam, twitch and spotify"*, *"vs code, chrome and
 github.com"*. Jarvis resolves each part into a real launch action and shows the
 result as chips you can remove before saving. **Edit** on any row reopens it
@@ -208,6 +215,32 @@ Manual trigger, never always-on: the mic only opens when you ask for it.
   model downloads on first use into `models/` (gitignored).
 - TTS is edge-tts (free, no key, needs internet) with pyttsx3 as the offline
   fallback — `speak()` falls back on its own if edge-tts fails.
+
+### "Hey Jarvis" — hands-free
+
+Set `voice.wake_word` (or the toggle in **Settings**) and Jarvis listens for
+**"Hey Jarvis"**, then starts capturing what you say next — no keypress at all.
+
+It runs on openWakeWord's pretrained `hey_jarvis` ONNX model, entirely locally.
+Tested against synthesised speech it scored 0.99 on "Hey Jarvis" phrasings and
+**0.000** on near-misses like "hey there, can you help me" — 7/7 with no false
+positives — at about **4% of one CPU core**.
+
+It is **off by default on purpose**: it holds the microphone open the whole
+time it runs. Audio is fed frame by frame into the local model and discarded —
+nothing is recorded, stored or sent anywhere — and the wake listener releases
+the mic before the real capture starts, so the two never fight over the device.
+
+### Why speech-out isn't instant
+
+edge-tts is a network service, and `save()` waits for the whole clip: about 4s,
+which is why replies used to land ~5s after the text. Jarvis now streams the
+chunks and plays through sounddevice instead of spawning PowerShell, which
+gets it to **~1.7s** warm. Most of what's left is the round trip to Microsoft.
+
+If you'd rather have it near-instant than nice-sounding, set `voice.tts` to
+`pyttsx3` — that's the offline Windows voice, which starts speaking
+immediately but sounds robotic.
 
 Two things worth knowing about model loading. Going through huggingface_hub
 re-checks the repo over the network *and*, because Windows without Developer

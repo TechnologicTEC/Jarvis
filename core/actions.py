@@ -308,6 +308,15 @@ _KNOWN_SITES = {
     "docs": "https://docs.google.com", "calendar": "https://calendar.google.com",
     "linkedin": "https://linkedin.com", "seek": "https://seek.co.nz",
     "twitch": "https://twitch.tv", "notion": "https://notion.so",
+    # multi-word forms people actually say
+    "google docs": "https://docs.google.com",
+    "google drive": "https://drive.google.com",
+    "google sheets": "https://sheets.google.com",
+    "google slides": "https://slides.google.com",
+    "google calendar": "https://calendar.google.com",
+    "google mail": "https://mail.google.com",
+    "chat gpt": "https://chat.openai.com",
+    "you tube": "https://youtube.com",
 }
 
 

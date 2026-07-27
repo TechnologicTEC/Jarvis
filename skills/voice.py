@@ -91,8 +91,21 @@ def load_model():
 
 
 def warm():
-    """Preload the model in the background so the first Alt-to-talk is instant."""
-    threading.Thread(target=load_model, daemon=True).start()
+    """Preload in the background so the first use isn't slow.
+
+    Covers both halves: the Whisper model (~5s) and the audio stack used for
+    speech-out — importing PyAV's decoder costs ~2.3s the first time, which
+    otherwise lands on the first spoken reply.
+    """
+    def go():
+        load_model()
+        try:
+            import sounddevice  # noqa: F401
+            from faster_whisper.audio import decode_audio  # noqa: F401
+        except Exception:
+            pass
+
+    threading.Thread(target=go, daemon=True).start()
 
 
 def is_recording() -> bool:
@@ -188,7 +201,14 @@ def _voice_name() -> str:
 
 
 def speak(text: str) -> dict:
-    """Say `text`. edge-tts when configured and online, else pyttsx3."""
+    """Say `text`.
+
+    `voice.tts`:
+      edge-tts  nicer voice, needs internet, ~1.5-2.5s before it starts
+      pyttsx3   offline Windows SAPI, starts almost instantly, robotic
+    edge-tts falls back to pyttsx3 on any failure, so replies still get spoken
+    offline.
+    """
     text = (text or "").strip()
     if not text:
         return {"ok": False, "engine": None}
@@ -205,7 +225,14 @@ _play_proc = None
 
 
 def _speak_edge(text: str) -> bool:
-    """edge-tts writes an mp3; play it without pulling in a media library."""
+    """Synthesise with edge-tts and play it.
+
+    Latency matters here: `Communicate.save()` waits for the *entire* clip
+    before returning (~4s), which is why replies used to arrive ~5s after the
+    text appeared. Streaming the chunks and playing as soon as the stream ends
+    lands around 1.5-2.5s, and playing through sounddevice avoids another
+    ~0.3s of PowerShell startup.
+    """
     global _play_seq
     try:
         import asyncio
@@ -218,12 +245,36 @@ def _speak_edge(text: str) -> bool:
         path = os.path.join(tempfile.gettempdir(), f"jarvis_tts_{_play_seq % 6}.mp3")
 
         async def go():
-            await edge_tts.Communicate(text, _voice_name()).save(path)
+            with open(path, "wb") as f:
+                async for chunk in edge_tts.Communicate(text, _voice_name()).stream():
+                    if chunk.get("type") == "audio" and chunk.get("data"):
+                        f.write(chunk["data"])
 
         asyncio.run(go())
         if not os.path.isfile(path) or os.path.getsize(path) == 0:
             return False
-        _play(path)
+        if _play_decoded(path):
+            return True
+        _play(path)          # fall back to the external player
+        return True
+    except Exception:
+        return False
+
+
+def _play_decoded(path: str) -> bool:
+    """Play an mp3 in-process via sounddevice. Returns False if it can't."""
+    global _play_proc
+    try:
+        import numpy as np
+        import sounddevice as sd
+        from faster_whisper.audio import decode_audio
+
+        audio = decode_audio(path, sampling_rate=24000)
+        if audio is None or len(audio) == 0:
+            return False
+        stop_speaking()
+        sd.play(np.asarray(audio, dtype="float32"), 24000)
+        _play_proc = "sounddevice"
         return True
     except Exception:
         return False
@@ -261,9 +312,15 @@ def _play(path: str):
 
 
 def stop_speaking():
-    """Silence any in-progress playback."""
+    """Silence any in-progress playback, whichever backend is playing."""
     global _play_proc
-    if _play_proc is not None and _play_proc.poll() is None:
+    if _play_proc == "sounddevice":
+        try:
+            import sounddevice as sd
+            sd.stop()
+        except Exception:
+            pass
+    elif _play_proc is not None and getattr(_play_proc, "poll", lambda: 0)() is None:
         try:
             _play_proc.terminate()
         except Exception:

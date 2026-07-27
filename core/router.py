@@ -4,6 +4,7 @@ Patterns are checked first (instant, free). Only unclassified input falls
 through to the local LLM. Every reply is a dict:
     {"ok": bool, "intent": str, "reply": str, ...extras}
 """
+import os
 import re
 
 from core import actions
@@ -20,6 +21,18 @@ def route(text: str) -> dict:
         from core import windows
         windows.show_full()
         return {"ok": True, "intent": "open_full", "reply": "Opening Jarvis"}
+
+    # create/replace a setup by describing it, before the launcher sees it —
+    # "make a setup called gaming with discord and youtube" must not launch.
+    made = _make_setup(q, lc)
+    if made:
+        return made
+
+    # delete a setup by name
+    m = re.match(r"^\s*(?:delete|remove|get rid of)\s+(?:the\s+)?(?:setup\s+)?"
+                 r"(?:called\s+)?([\w &-]{1,24})(?:\s+setup)?\s*$", lc)
+    if m and m.group(1).strip() in [n.lower() for n in actions.names()]:
+        return dict(actions.delete_setup(m.group(1).strip()), intent="setups")
 
     # launch a named setup ("code", "study mode", ...) — but never off a
     # question. A setup called "applications" must not hijack "how many
@@ -142,6 +155,59 @@ def _stocks(q: str, lc: str) -> dict:
     except Exception as e:
         return {"ok": False, "intent": "stocks",
                 "reply": f"Stocks unavailable — {str(e).splitlines()[0][:120]}"}
+
+
+# "make a setup called gaming with discord and youtube"
+# "new setup study: canvas and notion"
+# "create a gaming setup that opens discord and twitch"
+_MAKE_SETUP = re.compile(
+    r"^\s*(?:can you\s+|please\s+)?(?:make|create|add|set ?up|new)\s+"
+    r"(?:a|an|the)?\s*(?:new\s+)?"
+    r"(?:setup\s+(?:called\s+|named\s+|for\s+)?)?"
+    r"(?P<name>[\w &-]{1,24}?)"
+    r"(?:\s+setup)?"
+    r"\s*(?:that\s+(?:opens|launches|runs)|with|:|-|—|containing|of)\s+"
+    r"(?P<body>.+)$",
+    re.I,
+)
+
+
+def _make_setup(q: str, lc: str):
+    """Create a setup conversationally, so you never have to open the editor."""
+    if not re.search(r"\bset ?up\b", lc) and not re.match(r"^\s*(make|create|new)\b", lc):
+        return None
+    m = _MAKE_SETUP.match(q.strip())
+    if not m:
+        return None
+    name = m.group("name").strip()
+    body = m.group("body").strip()
+    if not name or not body:
+        return None
+    # "a setup with discord and youtube" — no real name given
+    if name.lower() in ("setup", "a", "an", "the", "new", "one"):
+        name = body.split(",")[0].split(" and ")[0].strip()[:20]
+
+    inferred = actions.infer_items(body)
+    items = inferred.get("items") or []
+    if not items:
+        return {"ok": False, "intent": "setups",
+                "reply": f"Couldn't work out what to open for “{name}” — "
+                         f"nothing matched {', '.join(inferred.get('unresolved', [])[:3]) or body}"}
+    res = actions.save_setup(name, items)
+    res["intent"] = "setups"
+    if res.get("ok"):
+        what = []
+        for it in items:
+            if it.get("type") == "url":
+                what.append(re.sub(r"^https?://(www\.)?", "", it["target"]).split("/")[0])
+            elif it.get("type") == "store":
+                what.append(it.get("aumid", "").split("!")[0].split("_")[0])
+            else:
+                what.append(os.path.splitext(os.path.basename(it.get("path", "")))[0])
+        res["reply"] += " — " + ", ".join(w for w in what if w)
+        if inferred.get("unresolved"):
+            res["reply"] += f" (couldn't find: {', '.join(inferred['unresolved'][:3])})"
+    return res
 
 
 def _mail(lc: str) -> dict:
