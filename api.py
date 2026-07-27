@@ -245,29 +245,36 @@ class JarvisApi:
         with self._v_lock:
             self._v.update(kw)
 
-    def voice_start(self):
-        """Begin one listen->transcribe->route cycle on a worker thread."""
+    def voice_start(self, captured=None):
+        """Begin one listen->transcribe->route cycle on a worker thread.
+
+        `captured` is audio the wake listener already recorded on its own
+        stream; when present we skip straight to transcription instead of
+        opening the microphone again.
+        """
         from skills import voice
         with self._v_lock:
             if self._v["state"] in ("recording", "transcribing"):
                 return {"ok": False, "reply": "Already listening"}
-            self._v = {"state": "recording", "seconds": 0.0, "level": 0.0,
+            self._v = {"state": "transcribing" if captured is not None else "recording",
+                       "seconds": 0.0, "level": 0.0,
                        "transcript": "", "reply": "", "error": ""}
 
         def work():
             started = time.time()
             try:
-                # The wake listener holds the mic; hand the device over.
-                try:
-                    from skills import wake
-                    wake.pause()
-                except Exception:
-                    pass
-
                 def level(rms):
                     self._vset(level=min(1.0, rms * 18), seconds=time.time() - started)
 
-                audio = voice.record(on_level=level)
+                if captured is not None:
+                    audio = captured        # already recorded on the wake stream
+                else:
+                    try:
+                        from skills import wake
+                        wake.pause()
+                    except Exception:
+                        pass
+                    audio = voice.record(on_level=level)
                 self._vset(state="transcribing", seconds=time.time() - started)
                 text = voice.transcribe(audio)
                 if not text:
@@ -324,8 +331,9 @@ class JarvisApi:
         wake.stop()
         return {"ok": True, "reply": "Wake word off"}
 
-    def _on_wake(self):
-        """Wake word heard: stop talking, surface the window, start capturing.
+    def _on_wake(self, captured=None):
+        """Wake word heard. The listener has already recorded the question on
+        its own stream, so this just surfaces the window and processes it.
 
         Silencing first is what makes "Hey Jarvis, stop" work mid-sentence —
         and stops Jarvis transcribing its own voice.
@@ -335,7 +343,7 @@ class JarvisApi:
             voice.stop_speaking()
             if not windows.is_visible():
                 windows.show("compact")
-            self.voice_start()
+            self.voice_start(captured=captured)
         except Exception:
             pass
 

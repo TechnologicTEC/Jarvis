@@ -218,7 +218,10 @@ tall is Mount Everest" — these go to the internet, not to the local model, and
 all of it is free and key-less:
 
 - **date/time** answered locally, never guessed.
-- **weather** from wttr.in (no key, no account). Set `web.weather_location`.
+- **weather** from Open-Meteo, geocoded (no key, no account). Set
+  `web.weather_location` for the default. Asking for Auckland used to answer
+  for "Newton" — wttr.in reports the nearest *weather station*, so it named a
+  suburb; Open-Meteo geocodes the place you asked for.
 - **everything else** pools DuckDuckGo's Instant Answer API, Wikipedia, and
   DuckDuckGo's HTML results, then has the local model answer **from that
   fetched text only**.
@@ -256,6 +259,24 @@ Manual trigger, never always-on: the mic only opens when you ask for it.
   model downloads on first use into `models/` (gitignored).
 - TTS is edge-tts (free, no key, needs internet) with pyttsx3 as the offline
   fallback — `speak()` falls back on its own if edge-tts fails.
+
+### One stream, no handover
+
+When the wake word fires, the recording continues on **the same audio stream**
+rather than closing it and opening another. That gap used to be a few hundred
+milliseconds landing exactly where your question starts, so "Hey Jarvis what is
+the weather in Auckland" arrived as "the weather in Auckland" — and a mangled
+question produced a confidently wrong answer. Measured with real audio through
+the microphone, the full question now survives.
+
+The speech/silence gate is measured against the room instead of a fixed number.
+A fixed threshold either recorded the full 15s cap in a quiet room with a
+low-gain mic (nothing ever registered as speech, so the end was never
+detected) or cut you off in a loud one.
+
+The pre-roll keeps ~0.5s from before the trigger, so the wake word itself can
+land in the transcript; `strip_wake()` removes a leading "Hey Jarvis" rather
+than routing on it.
 
 ### "Hey Jarvis" — hands-free
 

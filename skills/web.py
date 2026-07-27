@@ -3,9 +3,9 @@
 Free and key-less by design, matching the project's $0 rule:
 
   * date/time      answered locally, never guessed by a model
-  * weather        wttr.in (no key, no account)
-  * everything else DuckDuckGo's Instant Answer API, then a DuckDuckGo HTML
-                   fallback for questions it has no boxed answer for
+  * weather        Open-Meteo, geocoded (no key, no account)
+  * everything else DuckDuckGo's Instant Answer API, Wikipedia, and a
+                   DuckDuckGo HTML fallback, then grounded on that text
 
 Results are quoted, not invented. When the web gives nothing usable the caller
 is told so rather than being handed a plausible-sounding guess — the whole
@@ -24,6 +24,20 @@ _UA = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Jarvis/1.0"}
 _TIMEOUT = 8
 
 
+def _get(url, **kw):
+    """GET with one retry — a single dropped connection shouldn't turn into
+    "couldn't reach the weather service" when a retry would have worked."""
+    last = None
+    for attempt in range(2):
+        try:
+            r = requests.get(url, headers=_UA, timeout=_TIMEOUT, **kw)
+            r.raise_for_status()
+            return r
+        except Exception as e:
+            last = e
+    raise last
+
+
 def _location() -> str:
     return config.get("web", "weather_location", default="Auckland") or "Auckland"
 
@@ -38,28 +52,80 @@ def date_answer() -> dict:
             "reply": now.strftime("%A, %d %B %Y — %I:%M %p").replace(" 0", " ")}
 
 
+# WMO weather codes -> plain English (Open-Meteo returns the numeric code).
+_WMO = {
+    0: "clear", 1: "mainly clear", 2: "partly cloudy", 3: "overcast",
+    45: "foggy", 48: "freezing fog", 51: "light drizzle", 53: "drizzle",
+    55: "heavy drizzle", 56: "freezing drizzle", 57: "freezing drizzle",
+    61: "light rain", 63: "rain", 65: "heavy rain",
+    66: "freezing rain", 67: "freezing rain",
+    71: "light snow", 73: "snow", 75: "heavy snow", 77: "snow grains",
+    80: "light showers", 81: "showers", 82: "heavy showers",
+    85: "snow showers", 86: "heavy snow showers",
+    95: "thunderstorms", 96: "thunderstorms with hail",
+    99: "thunderstorms with hail",
+}
+
+# Trailing words that are part of the question, not the place name.
+_PLACE_TAIL = re.compile(
+    r"\b(today|tonight|tomorrow|now|right now|currently|please|like|"
+    r"at the moment|this (?:morning|afternoon|evening|week))\b.*$", re.I)
+
+
+def _clean_place(place: str) -> str:
+    return _PLACE_TAIL.sub("", place or "").strip(" ,.?'") or ""
+
+
 def weather(place: str = None) -> dict:
-    place = (place or _location()).strip()
+    """Current conditions via Open-Meteo — free, no key, and unlike wttr.in it
+    geocodes properly (asking for Auckland used to answer for "Newton", one of
+    its suburbs, because wttr reported the nearest weather station)."""
+    place = _clean_place(place) or _location()
     try:
-        r = requests.get(f"https://wttr.in/{urllib.parse.quote(place)}?format=j1",
-                         headers=_UA, timeout=_TIMEOUT)
-        r.raise_for_status()
-        data = r.json()
-        cur = (data.get("current_condition") or [{}])[0]
-        today = (data.get("weather") or [{}])[0]
-        desc = ((cur.get("weatherDesc") or [{}])[0].get("value") or "").strip()
-        area = ((data.get("nearest_area") or [{}])[0].get("areaName") or [{}])
-        name = (area[0].get("value") if area else place) or place
-        bits = [f"{name}: {desc.lower()}" if desc else name]
-        if cur.get("temp_C"):
-            bits.append(f"{cur['temp_C']}°C (feels {cur.get('FeelsLikeC', '?')}°)")
-        if today.get("mintempC") and today.get("maxtempC"):
-            bits.append(f"today {today['mintempC']}–{today['maxtempC']}°C")
-        if cur.get("humidity"):
-            bits.append(f"humidity {cur['humidity']}%")
-        if cur.get("windspeedKmph"):
-            bits.append(f"wind {cur['windspeedKmph']} km/h")
-        return {"ok": True, "intent": "web", "reply": " · ".join(bits)}
+        g = _get("https://geocoding-api.open-meteo.com/v1/search",
+                 params={"name": place, "count": 1, "language": "en",
+                         "format": "json"})
+        hits = (g.json() or {}).get("results") or []
+        if not hits:
+            return {"ok": False, "intent": "web",
+                    "reply": f"I don't know where “{place}” is."}
+        loc = hits[0]
+        label = loc.get("name") or place
+        region = loc.get("country_code") or loc.get("country") or ""
+
+        w = _get("https://api.open-meteo.com/v1/forecast",
+                 params={"latitude": loc["latitude"],
+                         "longitude": loc["longitude"],
+                         "current": "temperature_2m,apparent_temperature,"
+                                    "relative_humidity_2m,wind_speed_10m,"
+                                    "weather_code,precipitation",
+                         "daily": "temperature_2m_min,temperature_2m_max,"
+                                  "precipitation_probability_max",
+                         "timezone": "auto", "forecast_days": 1})
+        data = w.json()
+        cur = data.get("current") or {}
+        daily = data.get("daily") or {}
+
+        desc = _WMO.get(int(cur.get("weather_code", -1)), "")
+        head = f"{label}{', ' + region if region else ''}: {desc}" if desc else label
+        bits = [head]
+        if cur.get("temperature_2m") is not None:
+            feels = cur.get("apparent_temperature")
+            bits.append(f"{round(cur['temperature_2m'])}°C"
+                        + (f" (feels {round(feels)}°)" if feels is not None else ""))
+        lo = (daily.get("temperature_2m_min") or [None])[0]
+        hi = (daily.get("temperature_2m_max") or [None])[0]
+        if lo is not None and hi is not None:
+            bits.append(f"today {round(lo)}–{round(hi)}°C")
+        pop = (daily.get("precipitation_probability_max") or [None])[0]
+        if pop is not None:
+            bits.append(f"{round(pop)}% chance of rain")
+        if cur.get("relative_humidity_2m") is not None:
+            bits.append(f"humidity {round(cur['relative_humidity_2m'])}%")
+        if cur.get("wind_speed_10m") is not None:
+            bits.append(f"wind {round(cur['wind_speed_10m'])} km/h")
+        return {"ok": True, "intent": "web", "reply": " · ".join(bits),
+                "place": label}
     except Exception as e:
         return {"ok": False, "intent": "web",
                 "reply": f"Couldn't reach the weather service — {str(e).splitlines()[0][:70]}"}

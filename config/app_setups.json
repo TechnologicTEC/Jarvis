@@ -33,16 +33,5 @@
       "target": "https://mail.google.com",
       "browser": "chrome"
     }
-  ],
-  "gaming": [
-    {
-      "type": "app",
-      "path": "C:\\Users\\you\\AppData\\Roaming\\Microsoft\\Windows\\Start Menu\\Programs\\Discord Inc\\Discord.lnk"
-    },
-    {
-      "type": "url",
-      "target": "https://youtube.com",
-      "browser": "chrome"
-    }
   ]
 }

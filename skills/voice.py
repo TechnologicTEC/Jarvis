@@ -11,6 +11,7 @@ Jarvis is idle and avoids holding the mic open.
 """
 import os
 import queue
+import re
 import subprocess
 import tempfile
 import threading
@@ -120,10 +121,12 @@ def stop():
     _stop_flag.set()
 
 
-def record(on_level=None) -> "object":
+def record(on_level=None, preroll=None) -> "object":
     """Record one utterance from the default mic. Returns a float32 numpy array.
 
     `on_level(rms)` is called per 100ms block so the UI can animate.
+    `preroll` is audio captured before this stream opened (see skills/wake.py)
+    — without it the first word after "Hey Jarvis" is lost to the handover.
     """
     global _recording
     import numpy as np
@@ -131,6 +134,11 @@ def record(on_level=None) -> "object":
 
     _stop_flag.clear()
     blocks, silence, voiced = [], 0, 0
+    if preroll is not None and len(preroll):
+        # Count it as speech already heard so a short answer isn't cut off by
+        # the silence detector before the user has finished.
+        blocks.append(np.asarray(preroll, dtype="float32").reshape(-1, 1))
+        voiced = _MIN_BLOCKS
     q: "queue.Queue" = queue.Queue()
 
     def cb(indata, _frames, _time, _status):
@@ -183,7 +191,19 @@ def transcribe(audio) -> str:
         audio, language="en", beam_size=1, vad_filter=True,
         condition_on_previous_text=False,
     )
-    return " ".join(s.text.strip() for s in segments).strip()
+    return strip_wake(" ".join(s.text.strip() for s in segments).strip())
+
+
+# The pre-roll deliberately includes the tail of "Hey Jarvis" so the first real
+# word isn't clipped, which means the wake phrase can land in the transcript.
+# Drop it rather than routing on it.
+_WAKE_PREFIX = re.compile(
+    r"^\s*(?:hey|hi|ok|okay)?[\s,]*jar+v[ie]s+[\s,.!?-]*", re.I)
+
+
+def strip_wake(text: str) -> str:
+    cleaned = _WAKE_PREFIX.sub("", text or "", count=1).strip()
+    return cleaned or (text or "").strip()
 
 
 def listen(on_level=None) -> str:

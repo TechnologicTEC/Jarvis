@@ -30,6 +30,44 @@ _frames_seen = 0
 _drops = 0
 _peak_since_reset = [0.0]
 
+# Rolling buffer of the most recent audio, kept so the recorder can be handed
+# what was said *during* the switch-over. Between the wake word firing and the
+# recorder opening its own stream there is a gap of a few hundred milliseconds,
+# and people start their sentence immediately after "Hey Jarvis" — so the first
+# word or two was being lost, which is what produced garbled questions.
+PREROLL_SECONDS = 2.0
+_preroll: list = []
+_preroll_lock = threading.Lock()
+
+
+def _preroll_push(frame):
+    max_frames = int(PREROLL_SECONDS * SAMPLE_RATE / FRAME)
+    with _preroll_lock:
+        _preroll.append(frame)
+        if len(_preroll) > max_frames:
+            del _preroll[:-max_frames]
+
+
+def take_preroll(seconds: float = 0.55):
+    """Audio captured just before/while the wake word fired, as float32.
+
+    Returned once and then cleared, so it can't leak into a later recording.
+    """
+    import numpy as np
+    want = int(seconds * SAMPLE_RATE / FRAME)
+    with _preroll_lock:
+        frames = list(_preroll[-want:]) if _preroll else []
+        _preroll.clear()
+    if not frames:
+        return None
+    pcm = np.concatenate([np.squeeze(f) for f in frames]).astype("float32")
+    return pcm / 32768.0
+
+
+def clear_preroll():
+    with _preroll_lock:
+        _preroll.clear()
+
 
 def _model_name() -> str:
     return config.get("voice", "wake_model", default="hey_jarvis_v0.1")
@@ -84,11 +122,85 @@ def resume():
     _paused = False
 
 
+# Utterance capture, continuing on the wake stream (see the comment at the
+# firing site). Mirrors the thresholds in skills/voice.py.
+CAPTURE_SILENCE_RMS = 0.012
+CAPTURE_SILENCE_FRAMES = 9        # ~0.7s of silence closes the utterance
+CAPTURE_MAX_FRAMES = 188          # ~15s hard cap
+CAPTURE_LEAD_FRAMES = 6           # ~0.5s kept from before the trigger
+
+_level_cb = None
+
+
+def set_level_callback(fn):
+    """UI hook: called with an RMS level per frame while capturing."""
+    global _level_cb
+    _level_cb = fn
+
+
+def _capture(q):
+    """Read the already-open stream until the speaker stops. float32 audio.
+
+    The speech/silence gate is relative to the room rather than a fixed number.
+    A fixed threshold either runs the full 15s cap in a quiet room with a
+    low-gain mic (nothing ever counts as speech, so the end is never detected)
+    or cuts you off in a loud one.
+    """
+    import numpy as np
+
+    with _preroll_lock:
+        lead = list(_preroll[-CAPTURE_LEAD_FRAMES:])
+        recent = [float(np.sqrt(np.mean((np.squeeze(f).astype("float32") / 32768.0) ** 2)))
+                  for f in _preroll[-20:]]
+    floor = min(recent) if recent else 0.0
+    gate = max(0.006, min(CAPTURE_SILENCE_RMS, floor * 4 + 0.004))
+
+    frames = list(lead)
+    silence = voiced = 0
+    peak = 0.0
+    while len(frames) < CAPTURE_MAX_FRAMES and _running:
+        try:
+            frame = q.get(timeout=1.0)
+        except Exception:
+            break
+        frames.append(frame)
+        block = np.squeeze(frame).astype("float32") / 32768.0
+        rms = float(np.sqrt(np.mean(block ** 2)))
+        peak = max(peak, rms)
+        if _level_cb:
+            try:
+                _level_cb(rms)
+            except Exception:
+                pass
+        if rms >= gate:
+            voiced += 1
+            silence = 0
+        else:
+            silence += 1
+        if voiced >= 2 and silence >= CAPTURE_SILENCE_FRAMES:
+            break
+        # Nothing said at all: give up early rather than banking 15s of silence.
+        if voiced == 0 and len(frames) > 38:
+            break
+    if not frames:
+        return None
+    pcm = np.concatenate([np.squeeze(f) for f in frames]).astype("float32")
+    return pcm / 32768.0
+
+
 def start(on_wake) -> bool:
     """Begin listening for the wake word. `on_wake()` runs on a worker thread."""
     global _thread, _running
     if _running:
         return True
+    # A previous listener may still be unwinding. Without this wait, start()
+    # saw _running as True, returned early without spawning anything, and the
+    # old thread then exited — leaving nothing listening at all.
+    if _thread is not None and _thread.is_alive():
+        _thread.join(timeout=2.0)
+    # Starting implies un-pausing. A listener left paused by a previous capture
+    # would otherwise sit in its sleep loop forever, silently never listening.
+    resume()
     if not available():
         return False
     try:
@@ -135,6 +247,7 @@ def start(on_wake) -> bool:
                             except Exception:
                                 continue
                             _frames_seen += 1
+                            _preroll_push(frame)
                             scores = _model.predict(np.squeeze(frame))
                             score = max(scores.values()) if scores else 0.0
                             _last_score = float(score)
@@ -143,13 +256,17 @@ def start(on_wake) -> bool:
                             now = time.time()
                             if score >= _threshold() and (now - _last_fire) > cooldown:
                                 _last_fire = now
-                                # Pause BEFORE handing over, or the outer loop
-                                # reopens the stream and races the recorder for
-                                # the mic, losing the start of what you say.
-                                pause()
                                 _model.reset()
+                                # Keep reading THIS stream straight into the
+                                # recording. Closing it and opening another
+                                # left a few hundred ms of dead air exactly
+                                # where the question starts, which is why words
+                                # went missing ("what is the weather in
+                                # Auckland" came back as "the weather...").
+                                utterance = _capture(q)
+                                pause()
                                 try:
-                                    on_wake()
+                                    on_wake(utterance)
                                 except Exception:
                                     pass
                                 break
@@ -163,9 +280,13 @@ def start(on_wake) -> bool:
     return True
 
 
-def stop():
+def stop(wait: bool = True):
+    """Stop listening. Waits for the audio thread to release the microphone,
+    so a following start() (or a recording) doesn't race it for the device."""
     global _running
     _running = False
+    if wait and _thread is not None and _thread.is_alive():
+        _thread.join(timeout=2.0)
 
 
 def status() -> dict:
