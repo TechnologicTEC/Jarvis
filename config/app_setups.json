@@ -1,0 +1,17 @@
+{
+  "code": [
+    { "type": "app", "path": "%LOCALAPPDATA%\\Programs\\Microsoft VS Code\\Code.exe" },
+    { "type": "store", "aumid": "Claude_pzs8sxrjxfjjc!Claude" },
+    { "type": "app", "path": "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe" }
+  ],
+  "study": [
+    { "type": "url", "target": "https://canvas.instructure.com", "browser": "chrome" },
+    { "type": "app", "path": "notepad.exe" }
+  ],
+  "chill": [
+    { "type": "url", "target": "https://youtube.com", "browser": "chrome" }
+  ],
+  "applications": [
+    { "type": "url", "target": "https://mail.google.com", "browser": "chrome" }
+  ]
+}
