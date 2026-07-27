@@ -1,6 +1,14 @@
 {
   "hotkey": { "double_esc_ms": 400 },
-  "voice": { "enabled": false, "tts": "edge-tts", "auto_listen_on_open": false },
+  "voice": {
+    "enabled": true,
+    "tts": "edge-tts",
+    "edge_voice": "en-AU-WilliamNeural",
+    "whisper_model": "base.en",
+    "preload_model": true,
+    "speak_replies": true,
+    "auto_listen_on_open": false
+  },
   "llm": { "ollama_url": "http://127.0.0.1:11434", "ollama_model": "llama3.2:3b" },
   "paths": {
     "es_exe": "vendor\\es.exe",

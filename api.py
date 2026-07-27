@@ -3,10 +3,19 @@
 The HTML calls e.g. `pywebview.api.route(text)` and gets a structured dict
 back. No logic lives here; it delegates to the router/actions/skills.
 """
+import threading
+import time
+
 from core import actions, router, windows
 
 
 class JarvisApi:
+    def __init__(self):
+        # Voice runs on a worker thread so the window stays responsive and can
+        # animate the timer/level while Whisper records and transcribes.
+        self._v_lock = threading.Lock()
+        self._v = {"state": "idle", "seconds": 0.0, "level": 0.0,
+                   "transcript": "", "reply": "", "error": ""}
     # ---- the one entry point both windows funnel text through ----
     def route(self, text):
         try:
@@ -74,6 +83,63 @@ class JarvisApi:
         except Exception as e:
             return {"ok": False, "reply": f"Stocks unavailable — {e}", "holdings": []}
 
+    # ---- voice ----
+    def _vset(self, **kw):
+        with self._v_lock:
+            self._v.update(kw)
+
+    def voice_start(self):
+        """Begin one listen->transcribe->route cycle on a worker thread."""
+        from skills import voice
+        with self._v_lock:
+            if self._v["state"] in ("recording", "transcribing"):
+                return {"ok": False, "reply": "Already listening"}
+            self._v = {"state": "recording", "seconds": 0.0, "level": 0.0,
+                       "transcript": "", "reply": "", "error": ""}
+
+        def work():
+            started = time.time()
+            try:
+                def level(rms):
+                    self._vset(level=min(1.0, rms * 18), seconds=time.time() - started)
+
+                audio = voice.record(on_level=level)
+                self._vset(state="transcribing", seconds=time.time() - started)
+                text = voice.transcribe(audio)
+                if not text:
+                    self._vset(state="done", transcript="",
+                               reply="Didn't catch that — try again")
+                    return
+                self._vset(transcript=text)
+                result = router.route(text)
+                reply = (result or {}).get("reply", "")
+                self._vset(state="done", reply=reply)
+                if reply and _speak_enabled():
+                    voice.speak(reply)
+            except Exception as e:
+                self._vset(state="error", error=str(e)[:200],
+                           reply=f"Voice failed — {str(e).splitlines()[0][:110]}")
+
+        threading.Thread(target=work, daemon=True).start()
+        return {"ok": True}
+
+    def voice_poll(self):
+        with self._v_lock:
+            return dict(self._v, ok=True)
+
+    def voice_stop(self):
+        from skills import voice
+        voice.stop()
+        return {"ok": True}
+
+    def voice_status(self):
+        from skills import voice
+        return dict(voice.status(), ok=True)
+
+    def speak(self, text):
+        from skills import voice
+        return voice.speak(text or "")
+
     # ---- status strip in the full app header ----
     def status(self):
         from core import llm_local
@@ -85,3 +151,8 @@ class JarvisApi:
             "stocks": stocks.is_available(),
             "gmail_connected": False,
         }
+
+
+def _speak_enabled() -> bool:
+    from core import config
+    return bool(config.get("voice", "speak_replies", default=True))

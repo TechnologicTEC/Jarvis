@@ -35,7 +35,7 @@ python main.py --tray   # start silent in the tray (what autostart uses)
 | 3 | File finder (Everything + rapidfuzz) | ✅ built — Everything installed, `es.exe` vendored |
 | 4 | Router + Ollama fallback | ✅ built — `llama3.2:3b` pulled |
 | 6 | Stocks (Stock_Project `chat_tools`) | ✅ built — read-only, see below |
-| 5 | Voice (faster-whisper + edge-tts) | ⏳ not built — the listen toggle is still visual only |
+| 5 | Voice (faster-whisper + edge-tts) | ✅ built — `base.en`, manual trigger |
 | 7 | Gmail internship tracker + Excel | ⏳ not built — needs Google Cloud OAuth setup |
 
 The full app header shows honest status dots for ollama / everything / gmail, and
@@ -66,6 +66,30 @@ and holds its own fetches in memory for the same TTL instead of persisting them.
 Configure it under `stocks` in `settings.json` (`project_path`, `user_email`).
 Note `user_email` matters: the DB's bootstrap user (`local@localhost`) owns no
 holdings, so an unscoped read would look like an empty portfolio.
+
+## Voice
+
+Manual trigger, never always-on: the mic only opens when you ask for it.
+
+- **Mini popup** — the `listen` toggle (or Alt). Space stops recording early.
+- **Full app** — click the mic ring, or press Alt.
+- Recording ends automatically on ~1.2s of silence, capped at 15s, so nothing
+  holds the mic open. The transcript goes through the **same `route()`** as
+  typed text, and the reply is spoken back (`voice.speak_replies`).
+- STT is `faster-whisper base.en` on CPU — local, free, offline. The ~140MB
+  model downloads on first use into `models/` (gitignored).
+- TTS is edge-tts (free, no key, needs internet) with pyttsx3 as the offline
+  fallback — `speak()` falls back on its own if edge-tts fails.
+
+Two things worth knowing about model loading. Going through huggingface_hub
+re-checks the repo over the network *and*, because Windows without Developer
+Mode can't symlink, re-materialises the 138MB blob — about **220s per load**.
+Jarvis therefore hands `WhisperModel` the already-downloaded snapshot directory
+directly, which loads in ~5s. `main.py` also warms the model in a background
+thread at startup, so the first Alt-to-talk doesn't pay even that — at the cost
+of roughly 300MB resident for the session (the tray app sits at ~540MB with it
+loaded, ~210MB without). Set `voice.preload_model` to `false` to trade that back
+for a ~5s wait on first use.
 
 ## Known rough edges
 

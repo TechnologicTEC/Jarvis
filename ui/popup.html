@@ -153,8 +153,24 @@ input::placeholder{color:#4f5b80}
     input.addEventListener('keydown',function(e){if(e.key==='Enter'){e.preventDefault();route(input.value);}else if(e.key==='Escape'){input.value='';input.blur();}});
     send.addEventListener('click',function(){route(input.value);input.focus();});
     if(search){search.addEventListener('keydown',function(e){if(e.key==='Enter'){e.preventDefault();var v=search.value.trim();if(v){search.value='';route('find '+v);}}});}
-    var listening=false;
-    function setListening(on){listening=on;if(on){dot.style.background='#8fdcf2';dot.style.animation='pulse 1.5s ease-in-out infinite';stateEl.textContent='Listening';stateEl.style.color='#8fdcf2';caption.textContent='voice lands in phase 5 · alt toggles';}else{dot.style.background='#4a5590';dot.style.animation='none';stateEl.textContent='Muted';stateEl.style.color='#6f81b5';caption.textContent='click the dot or press alt to listen';}}
+    var listening=false,vpoll=null;
+    function stopPoll(){if(vpoll){clearInterval(vpoll);vpoll=null;}}
+    function startVoice(){var a=api();
+      if(!a||!a.voice_start){caption.textContent='voice backend unavailable';return;}
+      caption.textContent='listening…';
+      a.voice_start().then(function(r){if(r&&r.ok===false){caption.textContent=r.reply||'busy';return;}
+        stopPoll();
+        vpoll=setInterval(function(){a.voice_poll().then(function(v){
+          if(!v)return;
+          if(v.state==='recording'){caption.textContent='listening… '+(v.seconds||0).toFixed(0)+'s';dot.style.transform='scale('+(1+0.9*Math.min(1,v.level||0)).toFixed(2)+')';}
+          else if(v.state==='transcribing'){caption.textContent='transcribing…';dot.style.transform='scale(1)';}
+          if(v.transcript){input.value=v.transcript;}
+          if(v.state==='done'||v.state==='error'){stopPoll();dot.style.transform='scale(1)';
+            if(v.reply)say(v.reply);
+            setListening(false);}
+        }).catch(function(){stopPoll();});},180);
+      }).catch(function(){caption.textContent='voice failed';});}
+    function setListening(on){listening=on;if(on){dot.style.background='#8fdcf2';dot.style.animation='pulse 1.5s ease-in-out infinite';stateEl.textContent='Listening';stateEl.style.color='#8fdcf2';startVoice();}else{stopPoll();var a=api();if(a&&a.voice_stop)a.voice_stop();dot.style.background='#4a5590';dot.style.animation='none';dot.style.transform='scale(1)';stateEl.textContent='Muted';stateEl.style.color='#6f81b5';caption.textContent='click the dot or press alt to listen';}}
     setListening(false);
     mic.addEventListener('click',function(){setListening(!listening);});
     var navs=[].slice.call(document.querySelectorAll('.jv-nav'));

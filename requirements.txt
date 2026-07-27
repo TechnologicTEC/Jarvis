@@ -4,3 +4,10 @@ Pillow>=9.3
 keyboard>=0.13.5
 requests>=2.31
 rapidfuzz>=3.6
+
+# voice (phase 5) — all free, STT runs locally on CPU
+faster-whisper>=1.0
+sounddevice>=0.4.6
+numpy>=1.24
+edge-tts>=6.1
+pyttsx3>=2.90

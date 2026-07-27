@@ -53,6 +53,18 @@ def _after_start(show_full_now: bool):
         print("[jarvis] global hotkey unavailable (keyboard hook failed) — use the tray menu")
     TRAY = _build_tray()
     threading.Thread(target=TRAY.run, daemon=True).start()
+
+    # Load Whisper now, in the background, so the first Alt-to-talk doesn't
+    # pay the ~5s model load. Costs ~300MB resident for the whole session —
+    # set voice.preload_model false to trade that back for a slower first use.
+    if (config.get("voice", "enabled", default=True)
+            and config.get("voice", "preload_model", default=True)):
+        try:
+            from skills import voice
+            voice.warm()
+        except Exception:
+            pass
+
     if show_full_now:
         windows.show_full()
 

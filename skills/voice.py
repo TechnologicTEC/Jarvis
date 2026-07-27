@@ -1,0 +1,260 @@
+"""Speech in (faster-whisper) and speech out (edge-tts, pyttsx3 fallback).
+
+Both halves are free. Whisper runs locally on CPU — `tiny.en`/`base.en` are
+fast enough there and never leave the machine. edge-tts needs internet but no
+key; pyttsx3 is the offline fallback and is used automatically when edge-tts
+fails, so voice output still works on a plane.
+
+Recording is push-to-talk-ish rather than always-on: `listen()` records until
+it hears a stretch of silence (or hits a cap), which keeps CPU at zero when
+Jarvis is idle and avoids holding the mic open.
+"""
+import os
+import queue
+import subprocess
+import tempfile
+import threading
+
+from core import config
+
+BASE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+MODEL_DIR = os.path.join(BASE, "models")
+
+SAMPLE_RATE = 16000
+_BLOCK = 1600           # 100ms blocks
+_SILENCE_RMS = 0.012    # below this counts as silence
+_SILENCE_BLOCKS = 12    # ~1.2s of silence ends the utterance
+_MIN_BLOCKS = 4         # ignore instant blips
+_MAX_BLOCKS = 150       # ~15s hard cap
+
+_model = None
+_model_lock = threading.Lock()
+_model_error = None
+
+_recording = False
+_stop_flag = threading.Event()
+
+
+# --------------------------------------------------------------------------
+# Speech to text
+# --------------------------------------------------------------------------
+
+def _model_name() -> str:
+    return config.get("voice", "whisper_model", default="base.en")
+
+
+def stt_available() -> bool:
+    try:
+        import faster_whisper  # noqa: F401
+        import sounddevice  # noqa: F401
+        return True
+    except Exception:
+        return False
+
+
+def _local_snapshot() -> str:
+    """Path of an already-downloaded model snapshot, or '' if there isn't one.
+
+    Passing the directory straight to WhisperModel skips huggingface_hub
+    entirely. That matters a lot here: going through the hub re-checks the
+    repo over the network and — because Windows without Developer Mode can't
+    symlink — re-materialises the 138MB blob, which took ~220s per load. From
+    the local snapshot it is about a second.
+    """
+    import glob
+    pattern = os.path.join(
+        MODEL_DIR, f"models--*faster-whisper-{_model_name()}", "snapshots", "*", "model.bin"
+    )
+    hits = sorted(glob.glob(pattern), key=os.path.getmtime, reverse=True)
+    return os.path.dirname(hits[0]) if hits else ""
+
+
+def load_model():
+    """Load Whisper once. First call downloads the model (~75-145MB)."""
+    global _model, _model_error
+    if _model is not None or _model_error:
+        return _model
+    with _model_lock:
+        if _model is not None or _model_error:
+            return _model
+        try:
+            from faster_whisper import WhisperModel
+            os.makedirs(MODEL_DIR, exist_ok=True)
+            local = _local_snapshot()
+            _model = WhisperModel(
+                local or _model_name(), device="cpu", compute_type="int8",
+                download_root=None if local else MODEL_DIR,
+            )
+        except Exception as e:
+            _model_error = str(e)
+    return _model
+
+
+def warm():
+    """Preload the model in the background so the first Alt-to-talk is instant."""
+    threading.Thread(target=load_model, daemon=True).start()
+
+
+def is_recording() -> bool:
+    return _recording
+
+
+def stop():
+    """Ask an in-progress listen() to finish early."""
+    _stop_flag.set()
+
+
+def record(on_level=None) -> "object":
+    """Record one utterance from the default mic. Returns a float32 numpy array.
+
+    `on_level(rms)` is called per 100ms block so the UI can animate.
+    """
+    global _recording
+    import numpy as np
+    import sounddevice as sd
+
+    _stop_flag.clear()
+    blocks, silence, voiced = [], 0, 0
+    q: "queue.Queue" = queue.Queue()
+
+    def cb(indata, _frames, _time, _status):
+        q.put(indata.copy())
+
+    _recording = True
+    try:
+        with sd.InputStream(samplerate=SAMPLE_RATE, channels=1, dtype="float32",
+                            blocksize=_BLOCK, callback=cb):
+            while len(blocks) < _MAX_BLOCKS and not _stop_flag.is_set():
+                try:
+                    block = q.get(timeout=1.0)
+                except queue.Empty:
+                    break
+                blocks.append(block)
+                rms = float(np.sqrt(np.mean(block ** 2)))
+                if on_level:
+                    try:
+                        on_level(rms)
+                    except Exception:
+                        pass
+                if rms >= _SILENCE_RMS:
+                    voiced += 1
+                    silence = 0
+                else:
+                    silence += 1
+                # only stop on silence once the user has actually said something
+                if voiced >= _MIN_BLOCKS and silence >= _SILENCE_BLOCKS:
+                    break
+    finally:
+        _recording = False
+
+    if not blocks:
+        return np.zeros(0, dtype="float32")
+    return np.concatenate(blocks, axis=0).flatten()
+
+
+def transcribe(audio) -> str:
+    import numpy as np
+
+    if audio is None or len(audio) == 0:
+        return ""
+    peak = float(np.max(np.abs(audio)))
+    if peak < 0.01:
+        return ""  # effectively silence; don't wake the model
+    model = load_model()
+    if model is None:
+        return ""
+    segments, _info = model.transcribe(
+        audio, language="en", beam_size=1, vad_filter=True,
+        condition_on_previous_text=False,
+    )
+    return " ".join(s.text.strip() for s in segments).strip()
+
+
+def listen(on_level=None) -> str:
+    """Record one utterance and return its transcript."""
+    return transcribe(record(on_level=on_level))
+
+
+# --------------------------------------------------------------------------
+# Text to speech
+# --------------------------------------------------------------------------
+
+def _tts_engine() -> str:
+    return config.get("voice", "tts", default="edge-tts")
+
+
+def _voice_name() -> str:
+    return config.get("voice", "edge_voice", default="en-AU-WilliamNeural")
+
+
+def speak(text: str) -> dict:
+    """Say `text`. edge-tts when configured and online, else pyttsx3."""
+    text = (text or "").strip()
+    if not text:
+        return {"ok": False, "engine": None}
+    if _tts_engine() == "edge-tts":
+        if _speak_edge(text):
+            return {"ok": True, "engine": "edge-tts"}
+    if _speak_pyttsx3(text):
+        return {"ok": True, "engine": "pyttsx3"}
+    return {"ok": False, "engine": None}
+
+
+def _speak_edge(text: str) -> bool:
+    """edge-tts writes an mp3; play it without pulling in a media library."""
+    try:
+        import asyncio
+
+        import edge_tts
+
+        path = os.path.join(tempfile.gettempdir(), "jarvis_tts.mp3")
+
+        async def go():
+            await edge_tts.Communicate(text, _voice_name()).save(path)
+
+        asyncio.run(go())
+        if not os.path.isfile(path) or os.path.getsize(path) == 0:
+            return False
+        _play(path)
+        return True
+    except Exception:
+        return False
+
+
+def _play(path: str):
+    """Play a file via PowerShell's MediaPlayer — no extra dependency."""
+    ps = (
+        "Add-Type -AssemblyName presentationCore;"
+        "$p=New-Object System.Windows.Media.MediaPlayer;"
+        f"$p.Open([uri]'{path}');"
+        "Start-Sleep -Milliseconds 400;"
+        "$p.Play();"
+        "Start-Sleep -Seconds ([math]::Ceiling($p.NaturalDuration.TimeSpan.TotalSeconds)+1);"
+        "$p.Close()"
+    )
+    subprocess.Popen(
+        ["powershell", "-NoProfile", "-NonInteractive", "-Command", ps],
+        creationflags=subprocess.CREATE_NO_WINDOW,
+    )
+
+
+def _speak_pyttsx3(text: str) -> bool:
+    try:
+        import pyttsx3
+        engine = pyttsx3.init()
+        engine.say(text)
+        engine.runAndWait()
+        engine.stop()
+        return True
+    except Exception:
+        return False
+
+
+def status() -> dict:
+    return {
+        "stt": stt_available(),
+        "model": _model_name(),
+        "model_loaded": _model is not None,
+        "tts": _tts_engine(),
+        "recording": _recording,
+    }
