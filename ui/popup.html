@@ -46,7 +46,7 @@ body.compact #jc-wrap{display:block}
 #jc-wrap{display:none}
 body.compact,body.compact html{background:transparent!important;overflow:hidden}
 .jc-item:hover{background:#111a30}
-#jc-setup-btn:hover,#jc-mode:hover{border-color:#5cc6e8;color:#8fdcf2}
+#jc-setup-btn:hover,#jc-mode:hover,#jc-pin:hover,#jc-expand:hover{border-color:#5cc6e8;color:#8fdcf2}
 @keyframes jcbar{0%,100%{transform:scaleY(.28)}50%{transform:scaleY(1)}}
 </style>
 </head>
@@ -63,7 +63,7 @@ body.compact,body.compact html{background:transparent!important;overflow:hidden}
 <div style="display:flex;align-items:center;gap:8px"><div id="jc-dot" style="width:7px;height:7px;background:#5cc6e8;border-radius:2px;box-shadow:0 0 8px rgba(92,198,232,.8)"></div><div id="jc-title" style="font-size:11px;letter-spacing:.18em;color:#7e8cc0;text-transform:uppercase">jarvis</div></div>
 <div style="display:flex;align-items:center;gap:7px">
 <div id="jc-mode" style="display:flex;align-items:center;gap:6px;font-size:10px;color:#93a2d0;padding:5px 10px;border:1px solid #24305c;border-radius:5px;cursor:pointer;user-select:none"><span id="jc-mode-ic">&#9673;</span> <span id="jc-mode-tx">listen</span></div>
-<div id="jc-pin" title="keep on top" style="font-size:11px;color:#93a2d0;padding:5px 9px;border:1px solid #24305c;border-radius:5px;cursor:pointer;user-select:none">&#128204;</div>
+<div id="jc-pin" title="keep on top" style="display:flex;align-items:center;gap:5px;font-size:10px;color:#93a2d0;padding:5px 9px;border:1px solid #24305c;border-radius:5px;cursor:pointer;user-select:none"><svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 17.5V22"/><path d="M8.5 10.9V4.5h7v6.4l2.2 2.6H6.3l2.2-2.6Z"/></svg><span id="jc-pin-tx">pin</span></div>
 <div id="jc-expand" title="expand (double-space)" style="font-size:10px;color:#93a2d0;padding:5px 9px;border:1px solid #24305c;border-radius:5px;cursor:pointer;user-select:none">&#9974;</div>
 </div>
 </div>
@@ -783,10 +783,14 @@ body.compact,body.compact html{background:transparent!important;overflow:hidden}
 
     // ---- pin: keep the console above other windows when you click away ----
     var pinBtn=document.getElementById('jc-pin'),pinned=true;
+    // Styled like the listen button: outlined and muted when off, tinted with
+    // the accent when on. A filled accent block read far too bright next to it.
+    var pinTx=document.getElementById('jc-pin-tx');
     function paintPin(){if(!pinBtn)return;
-      pinBtn.style.color=pinned?'#061024':'#93a2d0';
-      pinBtn.style.background=pinned?'#5cc6e8':'transparent';
-      pinBtn.style.borderColor=pinned?'#5cc6e8':'#24305c';
+      pinBtn.style.color=pinned?'#8fdcf2':'#93a2d0';
+      pinBtn.style.background=pinned?'rgba(92,198,232,.12)':'transparent';
+      pinBtn.style.borderColor=pinned?'rgba(92,198,232,.55)':'#24305c';
+      if(pinTx)pinTx.textContent=pinned?'pinned':'pin';
       pinBtn.title=pinned?'pinned on top — click to unpin':'click to keep on top';}
     function refreshPin(){var a=api();if(!a||!a.get_pinned)return;
       a.get_pinned().then(function(r){if(r){pinned=!!r.pinned;paintPin();}}).catch(function(){});}
