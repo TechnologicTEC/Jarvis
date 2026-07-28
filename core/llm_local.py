@@ -12,11 +12,22 @@ def _model() -> str:
     return config.get("llm", "ollama_model", default="llama3.2:3b")
 
 
-def is_available(timeout=0.4) -> bool:
+_reach = {"at": 0.0, "ok": False}
+
+
+def is_available(timeout=0.4, max_age=15.0) -> bool:
+    """Is Ollama up? Cached briefly — the header polls this on a timer and a
+    dead endpoint costs the full timeout every single time."""
+    import time
+    now = time.time()
+    if now - _reach["at"] < max_age:
+        return _reach["ok"]
     try:
-        return requests.get(_base() + "/api/tags", timeout=timeout).ok
+        _reach["ok"] = requests.get(_base() + "/api/tags", timeout=timeout).ok
     except Exception:
-        return False
+        _reach["ok"] = False
+    _reach["at"] = now
+    return _reach["ok"]
 
 
 def ask(prompt: str, timeout=90) -> str:

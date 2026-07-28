@@ -731,7 +731,11 @@ body.compact,body.compact html{background:transparent!important;overflow:hidden}
     tick();setInterval(tick,20000);
     function setStatus(id,ok,labelOk,labelBad){var el=document.getElementById(id);if(!el)return;var c=ok?'#7fae8c':'#b4708c';el.innerHTML='<div style="width:6px;height:6px;border-radius:50%;background:'+c+'"></div>'+(ok?labelOk:labelBad);}
     function refreshStatus(){var a=api();if(!a||!a.status)return;a.status().then(function(s){if(!s)return;setStatus('jv-st-ollama',!!s.ollama,'ollama ready','ollama missing');setStatus('jv-st-ev',!!s.everything,'everything up','everything missing');setStatus('jv-st-gmail',!!s.gmail_connected,'gmail ok','gmail not set up');var f=document.getElementById('jv-stat-files');if(f)f.textContent=s.everything?'everything indexed':'everything not installed';}).catch(function(){});}
-    function refreshPortfolio(){var a=api();if(!a||!a.stocks_summary)return;a.stocks_summary().then(function(s){var el=document.getElementById('jv-stat-portfolio');if(!el)return;if(!s||!s.ok){el.textContent='portfolio unavailable';return;}
+    function refreshPortfolio(){var a=api();if(!a||!a.stocks_summary)return;a.stocks_summary().then(function(s){var el=document.getElementById('jv-stat-portfolio');if(!el)return;
+      // still connecting: say so and try again shortly, rather than claiming
+      // the portfolio is unavailable
+      if(s&&s.loading){el.textContent='portfolio connecting…';setTimeout(refreshPortfolio,4000);return;}
+      if(!s||!s.ok){el.textContent='portfolio unavailable';return;}
       var v=s.total_value,d=s.day_change,txt='portfolio '+(v==null?'—':'$'+Math.round(v).toLocaleString());
       if(d!=null&&v!=null&&(v-d)!==0){var p=d/(v-d)*100;var col=d>=0?'#7fae8c':'#c98a9b';el.innerHTML=txt+' <span style="color:'+col+'">'+(p>=0?'+':'')+p.toFixed(1)+'%</span>';}
       else{el.textContent=txt;}}).catch(function(){});}

@@ -48,10 +48,17 @@ def _model_name() -> str:
 
 
 def stt_available() -> bool:
+    """Is speech-to-text installed?
+
+    Checks that the packages *exist* rather than importing them. Importing
+    faster_whisper cold pulls in ctranslate2 and friends and measured 79s on
+    this machine — and this is called from the status poll, so the window sat
+    frozen behind it right after opening.
+    """
+    import importlib.util
     try:
-        import faster_whisper  # noqa: F401
-        import sounddevice  # noqa: F401
-        return True
+        return all(importlib.util.find_spec(m) is not None
+                   for m in ("faster_whisper", "sounddevice"))
     except Exception:
         return False
 

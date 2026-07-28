@@ -289,9 +289,42 @@ def _scoped():
     return chat_tools
 
 
-def is_available() -> bool:
+def is_available(block: bool = True) -> bool:
+    """Is the Stock_Project connection usable?
+
+    block=False answers from what's already loaded without connecting. The
+    status strip calls this on every refresh, and connecting takes ~20s against
+    the hosted database — doing that eagerly held up the whole bridge at
+    startup, so the window came up and then sat unresponsive.
+    """
+    if not block:
+        return bool(_loaded and not _load_error)
     _ensure_loaded()
     return _loaded and not _load_error
+
+
+def is_loading() -> bool:
+    return not _loaded and not _load_error
+
+
+_warming = [False]
+
+
+def warm():
+    """Connect in the background, so callers never wait on the first use."""
+    if _loaded or _load_error or _warming[0]:
+        return
+    _warming[0] = True
+
+    def go():
+        try:
+            summary()
+        except Exception:
+            pass
+        finally:
+            _warming[0] = False
+
+    threading.Thread(target=go, daemon=True).start()
 
 
 def _money(x) -> str:

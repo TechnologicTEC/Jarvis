@@ -160,7 +160,13 @@ class JarvisApi:
 
     # ---- stocks ----
     def stocks_summary(self):
+        """Never blocks the first time. The header calls this on boot, and a
+        cold connect is ~20s against the hosted database — long enough to hold
+        up other bridge calls and make the freshly-opened window feel dead."""
         from skills import stocks
+        if stocks.is_loading():
+            stocks.warm()          # get it going, answer immediately
+            return {"ok": False, "loading": True, "reply": "connecting…"}
         try:
             return stocks.summary()
         except Exception as e:
@@ -371,13 +377,18 @@ class JarvisApi:
 
     # ---- status strip in the full app header ----
     def status(self):
+        """Cheap by design — the header polls this every minute, and nothing
+        here may block on a network connection or a model load. `stocks` used
+        to connect to the hosted database from here (~20s), which held up the
+        whole bridge at startup: the window appeared and then sat unresponsive."""
         from core import llm_local
         from skills import file_finder, stocks
         return {
             "ok": True,
             "ollama": llm_local.is_available(),
             "everything": file_finder.is_available(),
-            "stocks": stocks.is_available(),
+            "stocks": stocks.is_available(block=False),
+            "stocks_loading": stocks.is_loading(),
             "gmail_connected": _gmail_connected(),
         }
 

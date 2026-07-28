@@ -77,8 +77,28 @@ def _build_tray():
 
 
 def _after_start(show_full_now: bool):
-    """Runs once the webview event loop is up."""
+    """Runs once the webview event loop is up.
+
+    The window goes on screen FIRST and everything else follows on a worker
+    thread. It used to be the other way round — the hotkey hook, the tray icon
+    and the wake-word model (a synchronous ONNX load) all ran ahead of
+    show_full(), so at boot, with the disk busy, the screen stayed empty for
+    minutes. Setups are read straight from a JSON file, so they work the
+    moment the window paints, which is what you actually want at login.
+    """
+    if show_full_now:
+        windows.show_full()
+    threading.Thread(target=_background_init, daemon=True).start()
+
+
+def _background_init():
+    """Everything that can make you wait, done after the window is usable."""
     global TRAY, HOTKEY
+    started = time.time()
+
+    TRAY = _build_tray()
+    threading.Thread(target=TRAY.run, daemon=True).start()
+
     HOTKEY = HotkeyListener(
         windows.on_double_esc,
         window_ms=config.get("hotkey", "double_esc_ms", default=400),
@@ -86,8 +106,6 @@ def _after_start(show_full_now: bool):
     windows.HOTKEY_OK = HOTKEY.start()
     if not windows.HOTKEY_OK:
         log("global hotkey unavailable (keyboard hook failed) - use the tray menu")
-    TRAY = _build_tray()
-    threading.Thread(target=TRAY.run, daemon=True).start()
 
     # Load Whisper now, in the background, so the first Alt-to-talk doesn't
     # pay the ~5s model load. Costs ~300MB resident for the whole session -
@@ -101,16 +119,20 @@ def _after_start(show_full_now: bool):
             pass
 
     # Always-on "Hey Jarvis". Opt-in: it holds the microphone open.
+    # On its own thread because wake.start() loads an ONNX model synchronously,
+    # and nothing else should queue behind that.
     if config.get("voice", "enabled", default=True) and \
             config.get("voice", "wake_word", default=False):
-        try:
-            from skills import wake
-            if wake.start(API._on_wake):
-                log('listening for "Hey Jarvis"')
-            else:
-                log("wake word unavailable (mic busy or model missing)")
-        except Exception as e:
-            log(f"wake word failed: {str(e)[:120]}")
+        def _start_wake():
+            try:
+                from skills import wake
+                if wake.start(API._on_wake):
+                    log('listening for "Hey Jarvis"')
+                else:
+                    log("wake word unavailable (mic busy or model missing)")
+            except Exception as e:
+                log(f"wake word failed: {str(e)[:120]}")
+        threading.Thread(target=_start_wake, daemon=True).start()
 
     # Warm the stocks path too. Against the hosted DB a cold portfolio read is
     # ~30s (per-ticker cache lookups are network round trips, plus live
@@ -125,9 +147,7 @@ def _after_start(show_full_now: bool):
         threading.Thread(target=_warm_stocks, daemon=True).start()
 
     _start_inbox_poller()
-
-    if show_full_now:
-        windows.show_full()
+    log(f"background init finished in {time.time() - started:.1f}s")
 
 
 def _start_inbox_poller():

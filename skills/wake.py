@@ -90,10 +90,13 @@ def last_score() -> float:
 
 
 def available() -> bool:
+    """Is the wake word installed? Checks for the packages without importing
+    them — importing openwakeword is slow, and status polling must not pay
+    that (see the same note in skills/voice.py)."""
+    import importlib.util
     try:
-        import openwakeword  # noqa: F401
-        import sounddevice  # noqa: F401
-        return True
+        return all(importlib.util.find_spec(m) is not None
+                   for m in ("openwakeword", "sounddevice"))
     except Exception:
         return False
 

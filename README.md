@@ -26,6 +26,28 @@ taskbar, autostart) with none of that. A standalone `Jarvis.exe` is possible
 later via PyInstaller; it's deferred because it would need rebuilding after
 every code change while the app is still growing.
 
+### Startup order
+
+The window goes on screen first; everything slow follows behind it. Measured
+from launch: **window visible and usable in ~1s**, wake word listening about
+12s later. Setups are read from a JSON file, so the launcher works the moment
+the window paints — which is the point, since that's what you reach for at
+login.
+
+Getting there meant fixing what the freshly-opened window itself was waiting
+on. Two calls it makes on boot were quietly blocking the bridge:
+
+- `voice_status` **took 79s** — `stt_available()` proved faster-whisper was
+  installed by importing it, which cold-pulls ctranslate2 and friends. It now
+  checks the package *exists* (`importlib.util.find_spec`) without importing.
+  `wake.available()` had the same bug.
+- `status`/`stocks_summary` connected to the hosted stock database (~20s).
+  Both now answer from what's already loaded and kick the connection off in the
+  background, so the header shows "portfolio connecting…" and fills in later.
+
+The Ollama reachability check is cached for 15s too — the header polls it, and
+a dead endpoint costs the full timeout every time.
+
 **Use the shortcut, not a terminal.** The shortcuts run `pythonw.exe`, which
 has no console — and that is not just cosmetic. Started from a terminal, numpy's
 MKL runtime installs a console handler and aborts the whole process the moment
