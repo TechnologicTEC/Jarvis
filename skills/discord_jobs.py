@@ -56,6 +56,37 @@ def _headers():
             "User-Agent": "Jarvis (personal internship tracker, read-only)"}
 
 
+VIEW_CHANNEL = 1 << 10          # 1024
+READ_HISTORY = 1 << 16          # 65536
+INVITE_PERMS = VIEW_CHANNEL | READ_HISTORY      # 66560 — read-only, nothing more
+
+
+def invite_url() -> dict:
+    """The exact link to add this bot to a server, built from its own id.
+
+    Easier than walking a menu, and it pins the permissions to the two we
+    actually need rather than whatever the portal defaults to.
+    """
+    if not _token():
+        return {"ok": False, "reply": "No Discord bot token set."}
+    try:
+        r = requests.get(f"{API}/oauth2/applications/@me", headers=_headers(),
+                         timeout=12)
+        if not r.ok:
+            return {"ok": False, "reply": f"Discord error {r.status_code}"}
+        app = r.json()
+        g = requests.get(f"{API}/users/@me/guilds", headers=_headers(), timeout=12)
+        guilds = g.json() if g.ok else []
+        url = (f"https://discord.com/oauth2/authorize?client_id={app.get('id')}"
+               f"&permissions={INVITE_PERMS}&scope=bot")
+        return {"ok": True, "url": url, "name": app.get("name"),
+                "servers": [x.get("name") for x in guilds],
+                "reply": (f"{app.get('name')} is in {len(guilds)} server(s). "
+                          f"Invite: {url}")}
+    except Exception as e:
+        return {"ok": False, "reply": f"Discord unreachable — {str(e)[:70]}"}
+
+
 def check_access() -> dict:
     """Confirm the token works and the channels are readable, with a clear
     message when they aren't — the usual causes are a missing invite or the

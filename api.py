@@ -392,6 +392,11 @@ class JarvisApi:
         from skills import discord_jobs
         return dict(discord_jobs.status(), ok=True)
 
+    def discord_invite(self):
+        """The link to add the bot to a server, with the right permissions."""
+        from skills import discord_jobs
+        return discord_jobs.invite_url()
+
     def discord_check(self):
         """Confirm the bot token works and the channels are readable."""
         from skills import discord_jobs

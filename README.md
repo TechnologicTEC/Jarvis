@@ -573,9 +573,33 @@ History**, and never posts, edits or joins voice.
    { "discord": { "bot_token": "..." } }
    ```
    Never `settings.json` — that one is committed and this repo is public.
-2. Invite the bot (scope `bot`, permissions *View Channel* + *Read Message
-   History*), then right-click the jobs channel → **Copy Channel ID** into
+2. Invite the bot, then right-click the jobs channel → **Copy Channel ID** into
    `discord.channel_ids`.
+
+`discord_invite()` builds the invite link from the bot's own id and pins the
+permissions to the two that are needed, rather than whatever the portal
+defaults to:
+
+```
+https://discord.com/oauth2/authorize?client_id=<id>&permissions=66560&scope=bot
+```
+
+`discord_check()` then reports how many channels are readable, and names the
+problem when they aren't — "bot can't see that channel" means it isn't in the
+server yet.
+
+**The catch:** you can only add a bot to a server where you have **Manage
+Server**. For someone else's server — a student community, say — you cannot,
+and no amount of fiddling with the token changes that. Two legitimate routes:
+
+- ask a server admin to add it; the permissions above are read-only, which is
+  an easy thing to agree to; or
+- if the jobs channel is an **Announcement** channel, use Discord's *Follow*
+  button to mirror it into a server you own, and point Jarvis at the mirrored
+  channel instead.
+
+Logging in with your own account token would technically read the channel and
+is a bannable ToS violation, so Jarvis doesn't support it.
 
 The parser handles the usual shape — a tag row, then `Company - Role`, then the
 link — including embeds. The tag row is deliberately skipped: `Sydney | Intern`
