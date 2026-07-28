@@ -460,9 +460,14 @@ know it's working rather than silently missing things.
 
 Scope is software and computing, broadly read: developer, data, ML, web,
 DevOps, cloud, embedded, firmware, mechatronics, robotics, cyber, QA, IT.
-Marketing, nursing and civil internships are filtered out. Location must be
-Auckland, remote, hybrid or NZ-wide. Roles at companies already in your tracker
-are marked *already applied* and sorted last.
+Marketing, nursing and civil internships are filtered out. Roles at companies
+already in your tracker are marked *already applied* and sorted last.
+
+**Location is Auckland or genuinely remote — nothing else.** "New Zealand"
+alone used to pass, which let Wellington and Hamilton roles through, and the
+Discord feed carries as many Sydney posts as Auckland ones. Auckland (or its
+suburbs) has to be named, or the role has to be remote with nowhere else
+claimed; Australian and other-NZ-city postings are dropped.
 
 Two implementation notes worth keeping:
 
@@ -546,13 +551,35 @@ Set `jobs.companies_file` to that spreadsheet (first column, or a column headed
 generic board hits — one that has hired students before is a better lead. It
 isn't on this machine, so nothing is wired to it yet.
 
-### The Discord job feed
+### The Discord jobs feed
 
-Not built: reading a Discord server needs a bot token and the bot invited to
-that server, which only you can do. If you want it, create an application at
-[discord.com/developers](https://discord.com/developers/applications), add a
-bot, give it *Read Messages* and *Read Message History* on the jobs channel,
-and say so — the postings would flow through the same eligibility filter.
+Built and wired in — a channel where someone posts roles the day they open
+beats waiting for a crawler to notice. Postings appear alongside the board
+results and go through the same filters: Auckland, eligibility, freshness, and
+a direct fetch to confirm they're still open. They rank high, because a human
+posted them today.
+
+It reads through Discord's REST API (one GET per channel, no gateway) and is
+strictly read-only: the bot only needs **View Channel** and **Read Message
+History**, and never posts, edits or joins voice.
+
+**Two steps only you can do:**
+
+1. [discord.com/developers/applications](https://discord.com/developers/applications)
+   → New Application → **Bot**. Enable **Message Content Intent** on that page,
+   or message bodies come back empty. Copy the token into
+   `config/settings.local.json`:
+   ```json
+   { "discord": { "bot_token": "..." } }
+   ```
+   Never `settings.json` — that one is committed and this repo is public.
+2. Invite the bot (scope `bot`, permissions *View Channel* + *Read Message
+   History*), then right-click the jobs channel → **Copy Channel ID** into
+   `discord.channel_ids`.
+
+The parser handles the usual shape — a tag row, then `Company - Role`, then the
+link — including embeds. The tag row is deliberately skipped: `Sydney | Intern`
+splits exactly like `Company - Role` and was being read as company "Sydney".
 
 ## Inbox setup (one-time, free)
 

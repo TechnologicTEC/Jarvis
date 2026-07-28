@@ -242,10 +242,43 @@ _INTERNSHIP = re.compile(
     r"industrial experience|co[\s-]?op|cadet\w*|trainee|graduate programme|"
     r"summer of tech)\b", re.I)
 
-# Auckland, or remote/NZ-wide.
-_LOCATION_OK = re.compile(
-    r"\b(auckland|tamaki makaurau|remote|work from home|hybrid|"
-    r"new zealand|nationwide|anywhere in nz)\b", re.I)
+# Auckland specifically, or genuinely remote.
+_AUCKLAND = re.compile(
+    r"\b(auckland|tamaki makaurau|tāmaki makaurau|albany|takapuna|"
+    r"manukau|penrose|newmarket|north shore|east tamaki|henderson|"
+    r"mount wellington|parnell|wynyard quarter)\b", re.I)
+
+_REMOTE = re.compile(
+    r"\b(remote|work from home|wfh|anywhere in (?:nz|new zealand)|"
+    r"fully distributed|location independent)\b", re.I)
+
+# Somewhere else. Australia is the big one — the feeds are full of Sydney and
+# Melbourne roles — but other NZ cities matter too if you're not moving.
+_ELSEWHERE = re.compile(
+    r"\b(sydney|melbourne|brisbane|perth|adelaide|canberra|hobart|darwin|"
+    r"gold coast|australia|australian|nsw|victoria, au|queensland|"
+    r"wellington|christchurch|hamilton|dunedin|tauranga|palmerston north|"
+    r"napier|nelson|queenstown|rotorua|new plymouth|invercargill|whangarei|"
+    r"singapore|london|new york|san francisco|bangalore|india|manila)\b", re.I)
+
+
+def location_ok(text: str) -> bool:
+    """Auckland, or remote — and not somewhere else wearing an NZ label.
+
+    "New Zealand" alone used to pass, which let Wellington and Hamilton roles
+    through, and the Discord feed carries as many Sydney posts as Auckland
+    ones. Auckland (or explicit remote) now has to be named, and it has to
+    out-rank any other place mentioned.
+    """
+    blob = text or ""
+    here = bool(_AUCKLAND.search(blob))
+    remote = bool(_REMOTE.search(blob))
+    other = bool(_ELSEWHERE.search(blob))
+    if here:
+        return True                 # names Auckland: good even if it lists others
+    if remote and not other:
+        return True                 # remote, with nowhere else claimed
+    return False
 
 
 # Job pages carry a sidebar of OTHER roles ("Similar jobs", "People also
@@ -293,8 +326,6 @@ def looks_like_internship(text: str) -> bool:
     return bool(_INTERNSHIP.search(text or ""))
 
 
-def location_ok(text: str) -> bool:
-    return bool(_LOCATION_OK.search(text or ""))
 
 
 # ---------------------------------------------------------------------------
@@ -853,6 +884,19 @@ def search(force: bool = False, max_results: int = 25) -> dict:
                 row["verified"] = bool(v.get("checked"))
                 live.append(row)
         items = live
+
+    # The Discord feed is a person posting roles the day they open, so it goes
+    # in alongside the crawled results rather than in a separate list.
+    try:
+        from skills import discord_jobs
+        if discord_jobs.is_configured():
+            d = discord_jobs.recent()
+            have = {i["url"] for i in items}
+            items.extend(x for x in d.get("items", []) if x["url"] not in have)
+            skipped.extend(d.get("skipped", []))
+            items.sort(key=lambda r: (r["already_applied"], -r["score"]))
+    except Exception:
+        pass
 
     cov = coverage(known)
     with _lock:
