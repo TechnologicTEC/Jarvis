@@ -388,20 +388,6 @@ class JarvisApi:
             return {"ok": False, "items": [], "skipped": [],
                     "reply": f"Job search failed — {str(e).splitlines()[0][:110]}"}
 
-    def discord_status(self):
-        from skills import discord_jobs
-        return dict(discord_jobs.status(), ok=True)
-
-    def discord_invite(self):
-        """The link to add the bot to a server, with the right permissions."""
-        from skills import discord_jobs
-        return discord_jobs.invite_url()
-
-    def discord_check(self):
-        """Confirm the bot token works and the channels are readable."""
-        from skills import discord_jobs
-        return discord_jobs.check_access()
-
     def jobs_seen(self, url, role=""):
         from skills import jobs
         return jobs.mark_seen(url, role or "")

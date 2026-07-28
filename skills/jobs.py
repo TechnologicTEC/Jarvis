@@ -266,9 +266,9 @@ def location_ok(text: str) -> bool:
     """Auckland, or remote — and not somewhere else wearing an NZ label.
 
     "New Zealand" alone used to pass, which let Wellington and Hamilton roles
-    through, and the Discord feed carries as many Sydney posts as Auckland
-    ones. Auckland (or explicit remote) now has to be named, and it has to
-    out-rank any other place mentioned.
+    through, and NZ job feeds carry plenty of Sydney and Melbourne postings.
+    Auckland (or explicit remote) now has to be named, and it has to out-rank
+    any other place mentioned.
     """
     blob = text or ""
     here = bool(_AUCKLAND.search(blob))
@@ -963,19 +963,6 @@ def search(force: bool = False, max_results: int = 25) -> dict:
                 row["verified"] = bool(v.get("checked"))
                 live.append(row)
         items = live
-
-    # The Discord feed is a person posting roles the day they open, so it goes
-    # in alongside the crawled results rather than in a separate list.
-    try:
-        from skills import discord_jobs
-        if discord_jobs.is_configured():
-            d = discord_jobs.recent()
-            have = {i["url"] for i in items}
-            items.extend(x for x in d.get("items", []) if x["url"] not in have)
-            skipped.extend(d.get("skipped", []))
-            items.sort(key=lambda r: (r["already_applied"], -r["score"]))
-    except Exception:
-        pass
 
     cov = coverage(known)
     with _lock:

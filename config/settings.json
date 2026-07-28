@@ -16,9 +16,6 @@
     "wake_threshold": 0.55,
     "wake_cooldown": 3.0
   },
-  "discord": {
-    "channel_ids": [1397120047864086638]
-  },
   "jobs": {
     "cache_hours": 6,
     "companies_file": "c:\\Users\\you\\Documents\\Jarvis\\Software_Combined_Database.xlsx",

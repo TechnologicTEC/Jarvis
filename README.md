@@ -464,10 +464,10 @@ Marketing, nursing and civil internships are filtered out. Roles at companies
 already in your tracker are marked *already applied* and sorted last.
 
 **Location is Auckland or genuinely remote — nothing else.** "New Zealand"
-alone used to pass, which let Wellington and Hamilton roles through, and the
-Discord feed carries as many Sydney posts as Auckland ones. Auckland (or its
-suburbs) has to be named, or the role has to be remote with nowhere else
-claimed; Australian and other-NZ-city postings are dropped.
+alone used to pass, which let Wellington and Hamilton roles through, and NZ job
+feeds are full of Sydney and Melbourne postings. Auckland (or its suburbs) has
+to be named, or the role has to be remote with nowhere else claimed; Australian
+and other-NZ-city postings are dropped.
 
 Two implementation notes worth keeping:
 
@@ -551,122 +551,3 @@ Set `jobs.companies_file` to that spreadsheet (first column, or a column headed
 generic board hits — one that has hired students before is a better lead. It
 isn't on this machine, so nothing is wired to it yet.
 
-### The Discord jobs feed
-
-Built and wired in — a channel where someone posts roles the day they open
-beats waiting for a crawler to notice. Postings appear alongside the board
-results and go through the same filters: Auckland, eligibility, freshness, and
-a direct fetch to confirm they're still open. They rank high, because a human
-posted them today.
-
-It reads through Discord's REST API (one GET per channel, no gateway) and is
-strictly read-only: the bot only needs **View Channel** and **Read Message
-History**, and never posts, edits or joins voice.
-
-**Two steps only you can do:**
-
-1. [discord.com/developers/applications](https://discord.com/developers/applications)
-   → New Application → **Bot**. Enable **Message Content Intent** on that page,
-   or message bodies come back empty. Copy the token into
-   `config/settings.local.json`:
-   ```json
-   { "discord": { "bot_token": "..." } }
-   ```
-   Never `settings.json` — that one is committed and this repo is public.
-2. Invite the bot, then right-click the jobs channel → **Copy Channel ID** into
-   `discord.channel_ids`.
-
-`discord_invite()` builds the invite link from the bot's own id and pins the
-permissions to the two that are needed, rather than whatever the portal
-defaults to:
-
-```
-https://discord.com/oauth2/authorize?client_id=<id>&permissions=66560&scope=bot
-```
-
-`discord_check()` then reports how many channels are readable, and names the
-problem when they aren't — "bot can't see that channel" means it isn't in the
-server yet.
-
-**The catch:** you can only add a bot to a server where you have **Manage
-Server**. For someone else's server — a student community, say — you cannot,
-and no amount of fiddling with the token changes that. Two legitimate routes:
-
-- ask a server admin to add it; the permissions above are read-only, which is
-  an easy thing to agree to; or
-- if the jobs channel is an **Announcement** channel, use Discord's *Follow*
-  button to mirror it into a server you own, and point Jarvis at the mirrored
-  channel instead.
-
-Logging in with your own account token would technically read the channel and
-is a bannable ToS violation, so Jarvis doesn't support it.
-
-The parser handles the usual shape — a tag row, then `Company - Role`, then the
-link — including embeds. The tag row is deliberately skipped: `Sydney | Intern`
-splits exactly like `Company - Role` and was being read as company "Sydney".
-
-## Inbox setup (one-time, free)
-
-Everything except the Google authorisation is built and working. The tracker
-side already reads your spreadsheet; only Gmail access needs you:
-
-1. Go to [console.cloud.google.com](https://console.cloud.google.com) and create
-   a project (any name).
-2. **APIs & Services → Library →** enable **Gmail API**.
-3. **APIs & Services → OAuth consent screen →** External, fill in the app name
-   and your email. Add **yourself** as a Test user — that's what lets an
-   unverified personal app sign in.
-4. **Credentials → Create credentials → OAuth client ID → Desktop app.**
-   Download the JSON.
-5. Save it as `config/gmail_credentials.json` (gitignored).
-6. Open Jarvis → **Inbox → connect gmail** and approve. The token is written to
-   `config/gmail_token.json`, also gitignored.
-
-The only scope requested is `gmail.readonly`, so Jarvis cannot send, delete, or
-modify mail even if something goes wrong.
-
-**How detection works.** The tray host polls every `inbox.poll_minutes`
-(default 45). Each recent message is matched against the companies *already in
-your tracker* — by sender domain first, then by the company being named — and
-then against outcome wording (offer / interview / rejected / acknowledged).
-Bulk senders (LinkedIn, Seek, Indeed, newsletters, news desks) are dropped
-first. Jarvis never invents a company: no tracker match means no suggestion.
-
-A company name appearing in the text is treated as **weak** evidence and now
-also requires wording showing the message concerns an application ("your
-application", "the role", "candidate", "internship"…). Without that guard a
-news email reading *"Tencent … offer of employment scandal"* classified as an
-offer from Tencent — and that would have been written into the real
-spreadsheet. A match on the sender's domain still stands on its own.
-
-The classifier is covered by a test over both directions — six genuine replies
-(acknowledgement, interview, rejection, offer, coding challenge, a forwarded
-thread) and six that must stay silent (job alerts, newsletters, a receipt, a
-security alert, personal mail, and that news article).
-
-The **Inbox dot in the nav rail means "something changed you haven't seen"** —
-it only lights when there are unseen detections, and clears when you open the
-tab. It is not a decoration that is always on.
-
-**Nothing is written without you.** A detection only ever produces a
-`Kami — interview  [log it]` card. The Excel write happens on that click (or
-saying "log it") and nowhere else. Before the first write of a session it takes
-a timestamped backup beside the file, only touches the Stage/Status cells of an
-existing company row, and fails with a clear message if the workbook is open in
-Excel rather than half-writing.
-
-One caveat worth knowing: the tracker lives in OneDrive, and openpyxl rewrites
-the whole workbook on save. Plain data survives fine, but charts, images and
-some conditional formatting would not — worth keeping in mind if that sheet
-ever grows beyond a plain table.
-
-## Known rough edges
-
-- The local model is `llama3.2:3b` on CPU (no CUDA GPU here). It is fine for
-  quick questions but will still get facts wrong; the system prompt tells it to
-  decline rather than invent prices, dates or filenames. Anything about your
-  portfolio, files or email is answered deterministically, never by the model.
-- "why is my portfolio down" loads FinBERT and per-ticker news (~25s cold), so
-  plain "what's moving" deliberately routes to the fast movers answer instead.
-- Everything must be running **in your user session** for `es.exe` to work — the
-  Windows service alone runs in session 0 and `es.exe` cannot reach it.
