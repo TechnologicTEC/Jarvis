@@ -97,6 +97,7 @@ body.compact,body.compact html{background:transparent!important;overflow:hidden}
 <div class="jv-nav" data-nav="Files" style="width:70px;padding:12px 0;text-align:center;border-radius:10px;cursor:pointer;user-select:none;font:400 11px/1 'Space Grotesk',sans-serif;color:#93a2d0">Files</div>
 <div class="jv-nav" data-nav="Stocks" style="width:70px;padding:12px 0;text-align:center;border-radius:10px;cursor:pointer;user-select:none;font:400 11px/1 'Space Grotesk',sans-serif;color:#93a2d0">Stocks</div>
 <div class="jv-nav" data-nav="Inbox" style="position:relative;width:70px;padding:12px 0;text-align:center;border-radius:10px;cursor:pointer;user-select:none;font:400 11px/1 'Space Grotesk',sans-serif;color:#93a2d0">Inbox<div id="jv-inbox-dot" style="display:none;position:absolute;top:8px;right:11px;width:6px;height:6px;border-radius:50%;background:#5cc6e8;box-shadow:0 0 8px rgba(92,198,232,.9)"></div></div>
+<div class="jv-nav" data-nav="Jobs" style="width:70px;padding:12px 0;text-align:center;border-radius:10px;cursor:pointer;user-select:none;font:400 11px/1 'Space Grotesk',sans-serif;color:#93a2d0">Jobs</div>
 <div class="jv-nav" data-nav="Setups" style="width:70px;padding:12px 0;text-align:center;border-radius:10px;cursor:pointer;user-select:none;font:400 11px/1 'Space Grotesk',sans-serif;color:#93a2d0">Setups</div>
 <div style="margin-top:auto;display:flex;flex-direction:column;align-items:center;gap:9px">
 <div class="jv-nav" data-nav="Settings" style="width:70px;padding:10px 0;text-align:center;border-radius:10px;cursor:pointer;user-select:none;font:400 10.5px/1 'Space Grotesk',sans-serif;color:#6f81b5">Settings</div>
@@ -175,6 +176,18 @@ body.compact,body.compact html{background:transparent!important;overflow:hidden}
 <div id="jv-inbox-pending" style="display:none;flex-direction:column;gap:8px"></div>
 <div id="jv-inbox-body" class="jv-scroll" style="flex:1;min-height:0;border:1px solid rgba(150,180,235,.14);border-radius:12px;background:rgba(190,215,255,.04)"></div>
 <div class="jv-hint" style="color:#5a68a0">read-only gmail &#183; nothing is written to the tracker until you confirm</div>
+</div>
+
+<div id="jv-panel-Jobs" class="jv-panel" style="width:900px;height:100%;max-height:390px;flex-direction:column;gap:10px;padding:6px 0">
+<div style="display:flex;align-items:center;justify-content:space-between">
+<div style="font:500 12px/1 'Space Grotesk',sans-serif;letter-spacing:.2em;color:#eef4ff;text-transform:uppercase">Internships</div>
+<div style="display:flex;align-items:center;gap:10px">
+<div id="jv-jobs-hidden" class="jv-hint" style="color:#6f81b5"></div>
+<div id="jv-jobs-refresh" class="jv-tog jv-hint" style="border:1px solid rgba(150,180,235,.2);border-radius:8px;padding:6px 11px">refresh</div>
+</div>
+</div>
+<div id="jv-jobs-list" class="jv-scroll" style="flex:1;min-height:0;border:1px solid rgba(150,180,235,.14);border-radius:12px;background:rgba(190,215,255,.04)"><div class="jv-hint" style="padding:16px">Searching job boards&#8230;</div></div>
+<div class="jv-hint" style="color:#5a68a0">2nd-year eligible only &#183; penultimate and final-year roles are hidden &#183; click to open</div>
 </div>
 
 <div id="jv-panel-Setups" class="jv-panel" style="width:900px;height:100%;max-height:390px;flex-direction:column;gap:10px;padding:6px 0">
@@ -416,6 +429,7 @@ body.compact,body.compact html{background:transparent!important;overflow:hidden}
       var p=document.getElementById('jv-panel-'+name); if(p)p.classList.add('on');
       if(name==='Files'){loadFilesCount();var fi=document.getElementById('jv-files-input');if(fi)setTimeout(function(){fi.focus();},30);}
       if(name==='Stocks')loadStocks();
+      if(name==='Jobs')loadJobs();
       if(name==='Setups')loadSetups();
       if(name==='Settings')loadSettings();
       if(name==='Inbox'){loadInbox();markInboxSeen();}
@@ -501,6 +515,36 @@ body.compact,body.compact html{background:transparent!important;overflow:hidden}
       }).catch(function(){});}
     var sref=document.getElementById('jv-stocks-refresh');
     if(sref)sref.addEventListener('click',function(){loadStocks();refreshPortfolio();say('Refreshing portfolio');});
+
+    // ---- Jobs tab ----
+    function loadJobs(refresh){var a=api();if(!a||!a.jobs_list)return;
+      var list=document.getElementById('jv-jobs-list'),
+          hid=document.getElementById('jv-jobs-hidden');
+      if(refresh)list.innerHTML='<div class="jv-hint" style="padding:16px">Searching job boards…</div>';
+      a.jobs_list(!!refresh).then(function(r){
+        if(!r)return;
+        if(r.loading){list.innerHTML='<div class="jv-hint" style="padding:16px">Searching job boards…</div>';
+          setTimeout(function(){loadJobs(false);},4000);return;}
+        hid.textContent=(r.skipped&&r.skipped.length)?(r.skipped.length+' hidden'):'';
+        var items=r.items||[];
+        if(!items.length){list.innerHTML='<div class="jv-hint" style="padding:16px">'+esc(r.reply||'Nothing found.')+'</div>';return;}
+        var html='';
+        items.forEach(function(j){
+          var applied=j.already_applied;
+          html+='<div class="jv-row jv-job" data-url="'+esc(j.url)+'" style="display:flex;align-items:center;justify-content:space-between;gap:14px;padding:11px 16px;cursor:pointer">'
+            +'<div style="min-width:0"><div style="font:400 13px/1.25 \'Space Grotesk\',sans-serif;color:'+(applied?'#7e8cc0':'#eef4ff')+'">'+esc(j.role)+'</div>'
+            +'<div style="font:400 10px/1.4 \'JetBrains Mono\',monospace;color:#6f81b5;margin-top:4px">'
+            +esc(j.company||j.source)+(j.where?' · '+esc(j.where):'')+' · '+esc(j.source)
+            +(applied?' · <span style="color:#c98a9b">already applied</span>':'')+'</div></div>'
+            +'<div style="font:400 9.5px/1 \'JetBrains Mono\',monospace;color:#5a68a0;flex:none">open</div></div>';
+        });
+        list.innerHTML=html;
+        [].slice.call(list.querySelectorAll('.jv-job')).forEach(function(row){
+          row.addEventListener('click',function(){
+            var a2=api();if(a2&&a2.open_url){a2.open_url(row.getAttribute('data-url'));say('Opening posting');}});});
+      }).catch(function(){list.innerHTML='<div class="jv-hint" style="padding:16px">Job search failed.</div>';});}
+    var jrefresh=document.getElementById('jv-jobs-refresh');
+    if(jrefresh)jrefresh.addEventListener('click',function(){say('Refreshing job boards…');loadJobs(true);});
 
     // ---- Setups tab (list + create/edit) ----
     function loadSetups(){var a=api();if(!a||!a.get_setups_detail)return;

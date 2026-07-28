@@ -446,6 +446,54 @@ of roughly 300MB resident for the session (the tray app sits at ~540MB with it
 loaded, ~210MB without). Set `voice.preload_model` to `false` to trade that back
 for a ~5s wait on first use.
 
+## Jobs — finding internships you can actually apply for
+
+**Jobs** tab, or ask: "find me some internships", "any new internships",
+"who's hiring". Click a listing to open it.
+
+The filter is the point. You're 2nd year of 4, and most "software internship
+Auckland" results want penultimate or final-year students — scrolling past
+those is the actual chore. Anything demanding **penultimate**, 3rd/4th year, a
+graduation year, a completed degree, years of experience, or postgrad study is
+dropped before you see it, and the count of what was hidden is shown so you
+know it's working rather than silently missing things.
+
+Scope is software and computing, broadly read: developer, data, ML, web,
+DevOps, cloud, embedded, firmware, mechatronics, robotics, cyber, QA, IT.
+Marketing, nursing and civil internships are filtered out. Location must be
+Auckland, remote, hybrid or NZ-wide. Roles at companies already in your tracker
+are marked *already applied* and sorted last.
+
+Two implementation notes worth keeping:
+
+- Discovery is **Tavily**, not scraping. Seek's own JSON search endpoint was
+  tried first and 404s now, which is exactly the fragility to avoid; Tavily
+  respects robots and returns extracted page content.
+- Eligibility is read from the **full posting** (`include_raw_content`), not
+  the snippet. With snippets alone the filter had nothing to read and hid
+  nothing at all. The page is then truncated at "Similar jobs" / "People also
+  viewed" — a sidebar of *other* roles was getting Apple's intern posting
+  hidden as a "senior role". Seniority and postgrad are judged from the title
+  only, since bodies routinely say "mentored by senior engineers".
+
+Searches run in parallel (73s → ~2s) and are cached for `jobs.cache_hours`
+(default 6), because each one costs Tavily credits.
+
+### Your companies list
+
+Set `jobs.companies_file` to that spreadsheet (first column, or a column headed
+`Company`). Those companies get their own targeted searches and rank above
+generic board hits — one that has hired students before is a better lead. It
+isn't on this machine, so nothing is wired to it yet.
+
+### The Discord job feed
+
+Not built: reading a Discord server needs a bot token and the bot invited to
+that server, which only you can do. If you want it, create an application at
+[discord.com/developers](https://discord.com/developers/applications), add a
+bot, give it *Read Messages* and *Read Message History* on the jobs channel,
+and say so — the postings would flow through the same eligibility filter.
+
 ## Inbox setup (one-time, free)
 
 Everything except the Google authorisation is built and working. The tracker

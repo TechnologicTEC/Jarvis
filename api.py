@@ -375,6 +375,29 @@ class JarvisApi:
         from skills import voice
         return voice.speak(text or "")
 
+    # ---- internship hunting ----
+    def jobs_list(self, refresh=False):
+        from skills import jobs
+        try:
+            if not refresh and not jobs.is_ready():
+                jobs.warm()                     # answer now, populate behind
+                return {"ok": True, "loading": True, "items": [], "skipped": [],
+                        "reply": "searching job boards…"}
+            return jobs.search(force=bool(refresh))
+        except Exception as e:
+            return {"ok": False, "items": [], "skipped": [],
+                    "reply": f"Job search failed — {str(e).splitlines()[0][:110]}"}
+
+    def open_url(self, url):
+        import webbrowser
+        try:
+            if str(url).startswith(("http://", "https://")):
+                webbrowser.open(url)
+                return {"ok": True}
+        except Exception:
+            pass
+        return {"ok": False}
+
     # ---- status strip in the full app header ----
     def status(self):
         """Cheap by design — the header polls this every minute, and nothing

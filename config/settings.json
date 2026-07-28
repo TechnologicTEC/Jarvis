@@ -16,6 +16,11 @@
     "wake_threshold": 0.55,
     "wake_cooldown": 3.0
   },
+  "jobs": {
+    "cache_hours": 6,
+    "companies_file": "",
+    "poll_hours": 0
+  },
   "web": {
     "weather_location": "Auckland",
     "search_depth": "advanced"

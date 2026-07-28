@@ -53,10 +53,19 @@ def route(text: str) -> dict:
     if m and m.group(1).strip() in [n.lower() for n in actions.names()]:
         return dict(actions.delete_setup(m.group(1).strip()), intent="setups")
 
+    # Finding NEW internships. Ahead of the launcher because a setup is named
+    # "applications", and ahead of the file finder because "find me some
+    # internships" otherwise reads as a filename search.
+    if _JOB_HUNT.search(lc):
+        from skills import jobs
+        return jobs.search(
+            force=bool(re.search(r"\b(refresh|again|latest|new|check)\b", lc)))
+
     # launch a named setup ("code", "study mode", ...) — but never off a
-    # question. A setup called "applications" must not hijack "how many
-    # applications do I have"; launching apps is not something to guess at.
-    if not _QUESTION.search(lc):
+    # question, and never off "my <name>": a setup called "applications" must
+    # not hijack "how many applications do I have" or "my applications".
+    # Launching apps is not something to guess at.
+    if not _QUESTION.search(lc) and not re.search(r"\b(my|our)\b", lc):
         hit = actions.match(lc)
         if hit:
             res = actions.launch(hit)
@@ -279,6 +288,15 @@ _WEATHER = re.compile(
     r"\bdo i need (?:an? )?(?:umbrella|jacket|coat)\b"
 )
 
+# Looking for new roles, as opposed to asking about ones already applied for.
+# "any replies" / "my applications" must still reach the tracker.
+_JOB_HUNT = re.compile(
+    r"\b(find|search|look|any|new|show|latest|got any|what)\b[^.?]{0,28}\b"
+    r"(internships?|jobs?|roles?|openings?|positions?|vacanc\w+|placements?)\b"
+    r"|\b(job|internship) (?:hunt|search|board|opportunit\w+)\b"
+    r"|\bopportunit\w+\b|\bwho'?s hiring\b|\bhiring now\b"
+)
+
 _TABS = {"ask": "Ask", "files": "Files", "stocks": "Stocks", "portfolio": "Stocks",
          "inbox": "Inbox", "mail": "Inbox", "setups": "Setups", "setup": "Setups",
          "settings": "Settings", "preferences": "Settings"}
@@ -344,6 +362,10 @@ def _make_setup(q: str, lc: str):
 
 def _mail(lc: str) -> dict:
     """Internship tracker: check for replies, or confirm one into the sheet."""
+    return dict(_mail_inner(lc), intent="mail")
+
+
+def _mail_inner(lc: str) -> dict:
     from skills import email_tracker, excel_sync
     try:
         # "log it" is the confirmation step — the only path that writes.
