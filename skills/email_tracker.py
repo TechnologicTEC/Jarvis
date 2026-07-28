@@ -48,7 +48,21 @@ _STAGE_FOR = {
 }
 
 _NOISE_SENDERS = ("noreply@linkedin", "jobalerts", "no-reply@indeed", "seek.co",
-                  "newsletter", "notifications@", "digest")
+                  "newsletter", "notifications@", "digest", "news@", "media@",
+                  "marketing@", "promo", "@substack", "unsubscribe@")
+
+# Wording that shows a message is actually about *your* application, rather
+# than merely mentioning a company. Required when the only evidence is the
+# company name appearing in the text: a news email reading "Tencent ... offer
+# of employment scandal" otherwise scored as an offer from Tencent, and would
+# have written that into the tracker.
+_APP_CONTEXT = re.compile(
+    r"\bapplication\b|\bapplied\b|\bapplicant\b|"
+    r"\b(the (?:role|position|internship|vacancy)|this (?:role|position)|"
+    r"candidate|cv|resume|cover letter|recruit\w*|talent team|"
+    r"internship|graduate programme|grad program\w*|"
+    r"we'd like to (?:interview|meet|speak|chat)|"
+    r"invite you|your interview|your candidacy|hiring team)\b")
 
 
 def credentials_path() -> str:
@@ -130,20 +144,28 @@ def classify(sender: str, subject: str, snippet: str, companies) -> dict:
         domain = m.group(1)
     domain_core = _norm(domain.split(".")[0]) if domain else ""
 
-    matched, why = None, []
+    matched, why, by_domain = None, [], False
     for c in companies:
         cn = _norm(c)
         if not cn:
             continue
         if domain_core and (cn == domain_core or cn in domain_core or domain_core in cn):
-            matched, why = c, [f"sender domain {domain}"]
+            matched, why, by_domain = c, [f"sender domain {domain}"], True
             break
-        if re.search(r"\b" + re.escape(c.lower()) + r"\b", blob):
-            matched, why = c, ["company named in subject/body"]
-            break
+    if not matched:
+        for c in companies:
+            if re.search(r"\b" + re.escape(c.lower()) + r"\b", blob):
+                matched, why = c, ["company named in subject/body"]
+                break
     if not matched:
         return {"company": None, "outcome": None, "confidence": 0.0,
                 "why": "no tracked company matched"}
+
+    # A name in the text is weak evidence on its own — anyone can mention a
+    # company. Demand wording that shows it concerns your application.
+    if not by_domain and not _APP_CONTEXT.search(blob):
+        return {"company": None, "outcome": None, "confidence": 0.0,
+                "why": f"mentions {matched} but reads as unrelated to an application"}
 
     outcome = None
     for name, pattern in _OUTCOMES:
@@ -157,7 +179,7 @@ def classify(sender: str, subject: str, snippet: str, companies) -> dict:
                 "why": ", ".join(why) + ", but no outcome wording"}
 
     # domain match + clear wording is about as good as heuristics get
-    confidence = 0.9 if why and why[0].startswith("sender domain") else 0.7
+    confidence = 0.9 if by_domain else 0.7
     return {"company": matched, "outcome": outcome, "confidence": confidence,
             "why": ", ".join(why)}
 

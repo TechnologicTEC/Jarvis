@@ -448,8 +448,20 @@ modify mail even if something goes wrong.
 (default 45). Each recent message is matched against the companies *already in
 your tracker* — by sender domain first, then by the company being named — and
 then against outcome wording (offer / interview / rejected / acknowledged).
-Bulk senders (LinkedIn, Seek, Indeed, newsletters) are dropped first. Jarvis
-never invents a company: no tracker match means no suggestion.
+Bulk senders (LinkedIn, Seek, Indeed, newsletters, news desks) are dropped
+first. Jarvis never invents a company: no tracker match means no suggestion.
+
+A company name appearing in the text is treated as **weak** evidence and now
+also requires wording showing the message concerns an application ("your
+application", "the role", "candidate", "internship"…). Without that guard a
+news email reading *"Tencent … offer of employment scandal"* classified as an
+offer from Tencent — and that would have been written into the real
+spreadsheet. A match on the sender's domain still stands on its own.
+
+The classifier is covered by a test over both directions — six genuine replies
+(acknowledgement, interview, rejection, offer, coding challenge, a forwarded
+thread) and six that must stay silent (job alerts, newsletters, a receipt, a
+security alert, personal mail, and that news article).
 
 The **Inbox dot in the nav rail means "something changed you haven't seen"** —
 it only lights when there are unseen detections, and clears when you open the
