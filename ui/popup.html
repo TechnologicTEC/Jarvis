@@ -536,6 +536,8 @@ body.compact,body.compact html{background:transparent!important;overflow:hidden}
             +'<div class="jv-job-open" style="min-width:0;flex:1;cursor:pointer"><div style="font:400 13px/1.25 \'Space Grotesk\',sans-serif;color:'+(applied?'#7e8cc0':'#eef4ff')+'">'+esc(j.role)+'</div>'
             +'<div style="font:400 10px/1.4 \'JetBrains Mono\',monospace;color:#6f81b5;margin-top:4px">'
             +esc(j.company||j.source)+(j.where?' · '+esc(j.where):'')+' · '+esc(j.source)
+            +(j.known_hirer?' · <span style="color:#8fdcf2">on your list</span>':'')
+            +(j.careers_page?' · <span style="color:#c9b06f">careers page — check yourself</span>':'')
             +(applied?' · <span style="color:#c98a9b">already applied</span>':'')+'</div></div>'
             +'<div style="display:flex;align-items:center;gap:8px;flex:none">'
             +'<div class="jv-job-open jv-tog" style="font:400 9.5px/1 \'JetBrains Mono\',monospace;color:#5a68a0;border:1px solid rgba(150,180,235,.2);border-radius:6px;padding:5px 9px">open</div>'

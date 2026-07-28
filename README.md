@@ -487,6 +487,42 @@ is the thing this is meant to save you. Dismissals are kept in
 `config/jobs_seen.json` (gitignored) so they survive a restart, keyed by URL.
 **show all (n)** in the header brings them back.
 
+### Where it looks
+
+Two passes:
+
+1. **Job boards** — seek.co.nz, nz.indeed.com, nz.linkedin.com, sjs.co.nz,
+   summeroftech.co.nz, nz.gradconnection.com, trademe.co.nz, workhere.co.nz,
+   joblist.co.nz. Results are restricted to these domains.
+2. **Company careers pages** — the companies in your database, searched with no
+   domain restriction, because plenty advertise only on their own site and a
+   board search structurally cannot see those.
+
+The second pass rotates: `jobs.company_batch` (default 10) companies per
+refresh, each cached for `jobs.company_ttl_hours` (default 48), oldest first.
+Checking all 80 every time would exhaust the Tavily allowance, so the reply
+reports coverage — "career pages: 20/80 companies, 60 still to check" — rather
+than implying the whole list was searched. Run refresh a few times to sweep it.
+
+A careers landing page ("EROAD Careers") is kept but labelled *careers page —
+check yourself* and sorted below real postings, since it's a pointer rather
+than a role. Listicles, bootcamp ads and social posts are dropped.
+
+### Closed and out-of-date postings
+
+Boards keep old adverts up for years, and a dead link wastes more of your time
+than an ineligible one — you only find out after clicking through. Hidden when:
+
+- the page says **no longer accepting applications**, applications closed,
+  position filled, or lists it under "past internships";
+- it was **posted more than ~5 months ago** ("1 year ago", "11 months ago");
+- it names a **season that has finished**. NZ summer internships run
+  November–February, so in July 2026 a "2025 - 2026" advert is stale while
+  "2026/2027" is the live one.
+
+Verdicts stick, because Tavily doesn't always return the same amount of a page
+and a role doesn't stop being closed because this fetch was shorter.
+
 ### Your companies list
 
 Set `jobs.companies_file` to that spreadsheet (first column, or a column headed

@@ -62,6 +62,82 @@ _EXCLUDE = [
                          r"(commercial\s+|professional\s+|industry\s+)?experience\b"),
 ]
 
+# ---------------------------------------------------------------------------
+# Closed and stale postings
+#
+# Boards keep old adverts up for years. An EROAD listing from the 2025/2026
+# season was still being surfaced in July 2026, marked "No longer accepting
+# applications" — a dead link wastes more of your time than an ineligible one,
+# because you only find out after clicking through.
+# ---------------------------------------------------------------------------
+
+_CLOSED = re.compile(
+    r"\bno longer accepting applications?\b|\bapplications? (?:are )?closed\b|"
+    r"\bthis (?:job|position|role|vacancy) is no longer\b|"
+    r"\bposition (?:has been )?filled\b|\bnot accepting applications\b|"
+    r"\bexpired\b|\bclosed for applications\b|\brecruitment (?:has )?closed\b|"
+    r"\bapplications have closed\b|"
+    # aggregators archive old rounds under headings like "Past Internships"
+    r"\bpast (?:graduate|intern|job|opportunit|program)\w*\b|"
+    r"\bprevious(?:ly)? (?:advertised|listed)\b|\bnow closed\b", re.I)
+
+# "1 year ago", "11 months ago" — boards print this next to the post date.
+_POSTED_AGE = re.compile(r"\b(\d+)\+?\s*(day|week|month|year)s?\s+ago\b", re.I)
+
+# "2025 - 2026", "2025/26", "2026/2027" — an NZ summer season.
+_SEASON = re.compile(r"\b(20\d{2})\s*[-/–]\s*(20\d{2}|\d{2})\b")
+
+_MAX_AGE_DAYS = 150          # ~5 months; summer campaigns open around then
+
+
+def posting_age_days(text: str):
+    """Days since posting, if the page says. None when it doesn't."""
+    best = None
+    for n, unit in _POSTED_AGE.findall(text or ""):
+        try:
+            n = int(n)
+        except ValueError:
+            continue
+        days = n * {"day": 1, "week": 7, "month": 30, "year": 365}[unit.lower()]
+        best = days if best is None else min(best, days)
+    return best
+
+
+def season_is_past(text: str) -> bool:
+    """Does this advertise a summer season that has already finished?
+
+    NZ summer internships run roughly November to February, so the 2025/2026
+    season is over by March 2026 — an advert naming it in July 2026 is stale.
+    """
+    import datetime
+    today = datetime.date.today()
+    for start, end in _SEASON.findall(text or ""):
+        try:
+            start = int(start)
+            end = int(end) if len(end) == 4 else int(str(start)[:2] + end)
+        except ValueError:
+            continue
+        if end < today.year:
+            return True
+        if end == today.year and today.month > 3:
+            return True
+    return False
+
+
+def check_freshness(text: str, title: str = "") -> dict:
+    """Is this still open and current? {open, reason}"""
+    blob = f"{title}\n{text or ''}"
+    if _CLOSED.search(blob):
+        return {"open": False, "reason": "closed"}
+    age = posting_age_days(blob)
+    if age is not None and age > _MAX_AGE_DAYS:
+        months = round(age / 30)
+        return {"open": False, "reason": f"posted {months} months ago"}
+    if season_is_past(f"{title} {(text or '')[:600]}"):
+        return {"open": False, "reason": "past season"}
+    return {"open": True, "reason": ""}
+
+
 # Wording that explicitly welcomes earlier years — overrides a weak exclusion.
 _INCLUSIVE = re.compile(
     r"\b(all years|any year|first[\s-]?year|second[\s-]?year|1st[\s-]?year|"
@@ -151,6 +227,29 @@ _LISTING_PAGE = re.compile(
     r"^\d[\d,]*\+?\s|jobs? in |job vacancies|search \d|"
     r"\bjobs,? employment\b|\bjob search\b", re.I)
 
+# A company's careers landing page — not a specific role, but still worth
+# knowing about for a company you're targeting. Shown below real postings.
+_CAREERS_PAGE = re.compile(
+    r"\bcareers?\b|\bcurrent vacanc\w+\b|\bjob opportunit\w+\b|"
+    r"\bwork (?:with|for) us\b|\bjoin (?:us|our team)\b|\bearly careers?\b|"
+    r"\bopportunities\b|\bvacancies\b", re.I)
+
+# Content farms and listicles that rank well and help not at all.
+_CONTENT_FARM = re.compile(
+    r"\bnucamp\b|\btop \d+\b|\bbest \d+\b|\b\d+ best\b|\bultimate guide\b|"
+    r"\bhow to (?:get|land|find)\b|\bblog\b|\bwhat is\b|\bcourse\b|\bbootcamp\b",
+    re.I)
+
+# Social and forum results are never the advert itself.
+_BLOCK_DOMAINS = ("facebook.com", "twitter.com", "x.com", "reddit.com",
+                  "youtube.com", "instagram.com", "tiktok.com", "quora.com",
+                  "glassdoor.", "medium.com", "wikipedia.org")
+
+# A URL that ends at a section index rather than a specific advert.
+_INDEX_URL = re.compile(
+    r"/(careers?|jobs?|internships?|opportunities|vacancies|"
+    r"work-with-us|join-us|early-careers?)/?$", re.I)
+
 
 def _parse_title(title: str, url: str) -> dict:
     t = (title or "").strip()
@@ -184,7 +283,7 @@ def _is_individual_posting(url: str, title: str) -> bool:
 # Search
 # ---------------------------------------------------------------------------
 
-_cache = {"at": 0.0, "items": [], "skipped": []}
+_cache = {"at": 0.0, "items": [], "skipped": [], "coverage": {}}
 _lock = threading.Lock()
 _searching = [False]
 
@@ -283,7 +382,13 @@ _verdict_cache = {"data": None}
 # Only durable facts about the posting are worth remembering. "no year
 # restriction found" may simply mean we didn't get that far down the page.
 _STICKY = {"penultimate", "final year only", "3rd/4th year", "graduating soon",
-           "must have degree", "postgrad only", "senior role"}
+           "must have degree", "postgrad only", "senior role",
+           "closed", "past season"}
+
+
+def _is_sticky(reason: str) -> bool:
+    # "posted 14 months ago" only gets older, so remember those too
+    return reason in _STICKY or reason.startswith("posted ")
 
 
 def _load_verdicts() -> dict:
@@ -302,7 +407,7 @@ def _load_verdicts() -> dict:
 
 
 def _remember_verdict(url: str, reason: str):
-    if reason not in _STICKY:
+    if not _is_sticky(reason):
         return
     data = _load_verdicts()
     if data.get(url) == reason:
@@ -401,6 +506,90 @@ def known_companies() -> list:
     return out[:80]
 
 
+# ---------------------------------------------------------------------------
+# Company career pages
+#
+# Job boards are only half the picture: plenty of the companies in your list
+# advertise on their own careers site and nowhere else. Board search can't see
+# those at all, because include_domains restricts results to the boards.
+#
+# Checking 80 companies on every refresh would burn the Tavily allowance, so
+# each company is cached for a long TTL and only the stalest handful are
+# re-checked per run. Over a few refreshes the whole list gets covered, and
+# coverage is reported so it's clear how far through it is.
+# ---------------------------------------------------------------------------
+
+CAREERS_PATH = os.path.join(BASE, "config", "jobs_companies.json")
+_careers_cache = {"data": None}
+
+
+def _load_careers() -> dict:
+    if _careers_cache["data"] is not None:
+        return _careers_cache["data"]
+    try:
+        import json
+        with open(CAREERS_PATH, encoding="utf-8") as f:
+            data = json.load(f)
+        if not isinstance(data, dict):
+            data = {}
+    except Exception:
+        data = {}
+    _careers_cache["data"] = data
+    return data
+
+
+def _save_careers(data: dict):
+    try:
+        import json
+        tmp = CAREERS_PATH + ".tmp"
+        os.makedirs(os.path.dirname(CAREERS_PATH), exist_ok=True)
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump(data, f, indent=1)
+            f.write("\n")
+        os.replace(tmp, CAREERS_PATH)
+    except Exception:
+        pass
+
+
+def _career_search(company: str):
+    """Look at the company's own site, not just the boards."""
+    from skills import web
+    key = web._tavily_key()
+    if not key:
+        return []
+    try:
+        from tavily import TavilyClient
+        r = TavilyClient(api_key=key).search(
+            query=f"{company} careers internship software engineering "
+                  f"New Zealand student 2026 apply",
+            # basic depth here: this runs across many companies, and the
+            # advanced tier costs double per search
+            search_depth="basic", max_results=5, country="new zealand",
+            include_raw_content=True)
+        return r.get("results") or []
+    except Exception:
+        return []
+
+
+def companies_due(known, limit):
+    """The stalest companies, so every one gets covered in rotation."""
+    ttl = float(config.get("jobs", "company_ttl_hours", default=48) or 48) * 3600
+    seen_at = _load_careers()
+    now = time.time()
+    stale = [(seen_at.get(c, {}).get("at", 0.0), c) for c in known]
+    stale = [(at, c) for at, c in stale if now - at > ttl]
+    stale.sort()
+    return [c for _, c in stale[:max(0, limit)]]
+
+
+def coverage(known) -> dict:
+    ttl = float(config.get("jobs", "company_ttl_hours", default=48) or 48) * 3600
+    data = _load_careers()
+    now = time.time()
+    done = sum(1 for c in known if now - data.get(c, {}).get("at", 0.0) <= ttl)
+    return {"checked": done, "total": len(known), "pending": len(known) - done}
+
+
 def _applied_companies():
     """Don't re-suggest somewhere you've already applied."""
     try:
@@ -425,13 +614,38 @@ def search(force: bool = False, max_results: int = 25) -> dict:
 
     known = known_companies()
     known_lc = {k.lower() for k in known}
-    queries = list(_queries())
-    # A company that has hired software students before is a better lead than
-    # a generic board result, so ask about them by name too.
-    for chunk in [known[i:i + 4] for i in range(0, min(len(known), 12), 4)]:
-        queries.append(" OR ".join(chunk) + " software internship New Zealand student")
 
-    for hit in _search_all(queries, sites):
+    # Pass 1 — the job boards.
+    hits = _search_all(_queries(), sites)
+
+    # Pass 2 — the companies' own careers pages, a rotating batch so the whole
+    # list is covered over successive refreshes without burning the allowance.
+    batch = int(config.get("jobs", "company_batch", default=10) or 10)
+    due = companies_due(known, batch)
+    if due:
+        careers = _load_careers()
+        results, lock = {}, threading.Lock()
+
+        def go(name):
+            found = _career_search(name)
+            with lock:
+                results[name] = found
+
+        threads = [threading.Thread(target=go, args=(c,), daemon=True) for c in due]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join(timeout=40)
+
+        for name, found in results.items():
+            careers[name] = {"at": time.time(), "n": len(found)}
+            for f in found:
+                f["_company_hint"] = name
+                hits.append(f)
+        _careers_cache["data"] = careers
+        _save_careers(careers)
+
+    for hit in hits:
             url = (hit.get("url") or "").split("?")[0]
             title = hit.get("title") or ""
             if not url or url in seen:
@@ -444,7 +658,18 @@ def search(force: bool = False, max_results: int = 25) -> dict:
             raw = (hit.get("raw_content") or "")[:12000]
             body = f"{title}\n{hit.get('content') or ''}\n{raw}"
 
-            if not _is_individual_posting(url, title):
+            # Career-page results are kept even when the URL doesn't look like
+            # a board posting — "/careers/", "/join-us" and the like are
+            # exactly what a board search can't reach.
+            from_company = bool(hit.get("_company_hint"))
+            if not from_company and not _is_individual_posting(url, title):
+                continue
+            if from_company and _LISTING_PAGE.search(title or ""):
+                continue
+            # listicles, course ads and social posts rank well and help not at all
+            if _CONTENT_FARM.search(title or "") or _CONTENT_FARM.search(url):
+                continue
+            if any(d in url.lower() for d in _BLOCK_DOMAINS):
                 continue
             if not looks_like_internship(body) or not looks_relevant(body):
                 continue
@@ -452,9 +677,19 @@ def search(force: bool = False, max_results: int = 25) -> dict:
                 continue
 
             parsed = _parse_title(title, url)
+            # the careers pass knows the company even when the page title
+            # doesn't spell it out
+            if hit.get("_company_hint") and not parsed["company"]:
+                parsed["company"] = hit["_company_hint"]
             elig = check_eligibility(body, title=f"{title} {parsed['role']}")
             # a requirement read once still applies, even if this fetch was
             # shorter and didn't include it
+            # Closed or out-of-season before anything else: a dead link is
+            # worse than an ineligible one, because you only find out after
+            # clicking through.
+            fresh = check_freshness(body, title)
+            if not fresh["open"]:
+                elig = {"eligible": False, "reason": fresh["reason"]}
             prior = remembered.get(url)
             if elig["eligible"] and prior:
                 elig = {"eligible": False, "reason": prior}
@@ -470,6 +705,16 @@ def search(force: bool = False, max_results: int = 25) -> dict:
                 "reason": elig["reason"],
                 "already_applied": parsed["company"].strip().lower() in applied,
                 "known_hirer": parsed["company"].strip().lower() in known_lc,
+                # a landing page rather than a specific role: still useful for
+                # a company you're targeting, but it shouldn't outrank a job
+                # a section index, or a title that names no specific role
+                "careers_page": bool(
+                    _INDEX_URL.search(url)
+                    or _LISTING_PAGE.search(parsed["role"])
+                    or (_CAREERS_PAGE.search(parsed["role"])
+                        and not re.search(r"\b(intern|engineer|developer|"
+                                          r"analyst|graduate)\b",
+                                          parsed["role"], re.I))),
             }
             if row["known_hirer"]:
                 row["score"] = round(row["score"] + 0.15, 3)   # rank these up
@@ -483,18 +728,22 @@ def search(force: bool = False, max_results: int = 25) -> dict:
                re.sub(r"[^a-z0-9]", "", row["role"].lower())[:40])
         if key not in best or row["score"] > best[key]["score"]:
             best[key] = row
+    # real postings first, then careers landing pages, applied-to last
     items = sorted(best.values(),
-                   key=lambda r: (r["already_applied"], -r["score"]))[:max_results]
+                   key=lambda r: (r["already_applied"], r["careers_page"],
+                                  -r["score"]))[:max_results]
 
+    cov = coverage(known)
     with _lock:
         _cache["at"] = time.time()
         _cache["items"] = items
         _cache["skipped"] = skipped
-    return _result(items, skipped, cached=False)
+        _cache["coverage"] = cov
+    return _result(items, skipped, cached=False, cov=cov)
 
 
-def _result(items, skipped, cached):
-    fresh = [i for i in items if not i["already_applied"]]
+def _result(items, skipped, cached, cov=None):
+    fresh = [i for i in items if not i["already_applied"] and not i.get("careers_page")]
     n_seen = seen_count()
     if not items:
         reply = ("Nothing new — everything matching is either already seen or "
@@ -502,6 +751,7 @@ def _result(items, skipped, cached):
                  "No new internships matched — Tavily needs a key for this "
                  "(web.tavily_api_key), or try again later.")
     else:
+        pages = sum(1 for i in items if i.get("careers_page"))
         top = fresh[0] if fresh else items[0]
         who = top["company"] or top["source"]
         reply = f"{len(fresh)} internship(s) you're eligible for · top: {top['role']}"
@@ -509,10 +759,16 @@ def _result(items, skipped, cached):
             reply += f" at {who}"
         if skipped:
             reply += f" · {len(skipped)} hidden (penultimate/final-year)"
+        if pages:
+            reply += f" · {pages} careers page(s) to check yourself"
         if n_seen:
             reply += f" · {n_seen} dismissed"
+    cov = cov or _cache.get("coverage") or {}
+    if cov.get("total"):
+        reply += (f" · career pages: {cov['checked']}/{cov['total']} companies"
+                  + (f", {cov['pending']} still to check" if cov.get("pending") else ""))
     return {"ok": True, "intent": "jobs", "items": items, "skipped": skipped,
-            "cached": cached, "seen": n_seen, "reply": reply}
+            "cached": cached, "seen": n_seen, "coverage": cov, "reply": reply}
 
 
 def warm():
