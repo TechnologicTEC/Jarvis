@@ -18,7 +18,7 @@
   },
   "web": {
     "weather_location": "Auckland",
-    "tavily_api_key": ""
+    "search_depth": "advanced"
   },
   "llm": {
     "ollama_url": "http://127.0.0.1:11434",
@@ -37,8 +37,7 @@
   "inbox": {
     "tracker_path": "C:\\Users\\you\\OneDrive\\Internships.xlsx",
     "poll_minutes": 45,
-    "lookback_days": 21,
-    "credentials_path": "config\\gmail_credentials.json"
+    "lookback_days": 21
   },
   "ui": {
     "full_size": [

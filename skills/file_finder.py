@@ -193,12 +193,13 @@ def search_reply(query: str, reveal_top: bool = True) -> dict:
     r = search(query)
     if not r["ok"]:
         if r.get("error") == "everything_missing":
-            return {"ok": False, "intent": "files",
+            return {"ok": False, "intent": "files", "error": "everything_missing",
                     "reply": "File search needs Everything (free, voidtools.com) — install it plus its es.exe CLI."}
         if r.get("error") == "everything_not_running":
-            return {"ok": False, "intent": "files",
+            return {"ok": False, "intent": "files", "error": "everything_not_running",
                     "reply": "Everything is installed but not running — launch it once so the index is live."}
-        return {"ok": False, "intent": "files", "reply": f"File search failed — {r.get('error')}"}
+        return {"ok": False, "intent": "files", "error": r.get("error"),
+                "reply": f"File search failed — {r.get('error')}"}
     if not r["results"]:
         return {"ok": True, "intent": "files", "reply": f"No files matching “{query}”", "results": []}
     top = r["results"][0]

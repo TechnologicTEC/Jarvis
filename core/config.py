@@ -8,6 +8,10 @@ SETTINGS_PATH = os.path.join(BASE, "config", "settings.json")
 
 LOCAL_PATH = os.path.join(BASE, "config", "settings.local.json")
 
+# Anything matching these never goes in the committed settings file.
+SECRET_KEYS = ("api_key", "apikey", "token", "password", "secret",
+               "credential", "client_secret")
+
 
 def _read(path) -> dict:
     try:
@@ -73,16 +77,31 @@ def _atomic_write(path: str, data: dict) -> None:
 
 
 def save(data: dict) -> None:
-    _atomic_write(SETTINGS_PATH, data)
+    """Write the shared settings file, with secrets stripped.
+
+    load() merges settings.local.json on top, so the natural-looking
+    `save(load())` would copy the local file's secrets straight into the
+    tracked one — which is public. Stripping here makes that impossible
+    regardless of who calls it.
+    """
+    cleaned = {}
+    for section, values in data.items():
+        if isinstance(values, dict):
+            cleaned[section] = {k: v for k, v in values.items()
+                                if not _is_secret(k)}
+        else:
+            cleaned[section] = values
+    _atomic_write(SETTINGS_PATH, cleaned)
 
 
-SECRET_KEYS = ("tavily_api_key", "api_key", "token", "password", "secret")
+def _is_secret(key: str) -> bool:
+    return any(s in str(key).lower() for s in SECRET_KEYS)
 
 
 def set_value(section: str, key: str, value) -> dict:
     """Write a setting. Secrets go to the gitignored local file so they can't
     be committed; everything else to the shared settings.json."""
-    if any(s in key.lower() for s in SECRET_KEYS):
+    if _is_secret(key):
         return set_local(section, key, value)
     data = _read(SETTINGS_PATH)
     data.setdefault(section, {})

@@ -257,6 +257,33 @@ the local model is skipped entirely: measured **2.3–2.7s** with a key against
 
 Without a key everything still works — Tavily is skipped silently.
 
+`web.search_depth` defaults to `advanced`, which reads more of each page and
+handles local/specific questions ("term dates", "opening hours") much better.
+It costs 2 API credits per search against `basic`'s 1 — on the 1000-credit free
+tier that's ~500 searches a month rather than ~1000. Measured side by side the
+two returned the same answers, so drop to `basic` if you ever run short.
+`web.country` (default `new zealand`) biases results locally.
+
+### The web is the default, not the model
+
+Anything the deterministic handlers don't claim now goes to search. It used to
+be the other way round — only sentences starting with a question word were
+searched, so bare phrasing fell through to the 3B local model answering from
+memory. That's where the wrong answers came from:
+
+| Asked | Used to do | Now |
+|---|---|---|
+| "search for the best laptop for students" | searched your **files**, found none | searches the web |
+| "what time does countdown close" | replied with **today's date** | shop hours |
+| "tesla stock price" | replied with **your portfolio total** | Tesla's price |
+| "auckland university term dates" | model: "I don't have access" | the actual dates |
+| "restaurants near auckland cbd" | model **invented** a restaurant | real listings |
+| "best programming language for beginners" | model guessed | sourced answer |
+
+Small talk ("hi", "thanks") and anything about *your* files/portfolio still
+never hits the network. A file search that finds nothing now falls through to
+the web, since "search for X" is often a question rather than a filename.
+
 That last step matters. Retrieval alone finds the right topic but often not the
 answer — Wikipedia returns the "Telephone" article for "who invented the
 telephone". Letting the model read the passage fixes that while keeping it

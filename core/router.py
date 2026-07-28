@@ -64,14 +64,42 @@ def route(text: str) -> dict:
             return res
 
     # file / folder search
+    # "google X" / "search the web for X" is never about local files
+    web_cmd = re.match(r"^\s*(?:google|bing|search (?:the )?(?:web|internet|online)"
+                       r"(?: for)?|look (?:this )?up|what does the internet say about)"
+                       r"\s+(.+)$", lc)
+    if web_cmd:
+        from skills import web
+        return web.search(web_cmd.group(1).strip())
+
     m = re.search(r"(?:find|search(?:\s+for)?|where(?:'s|\s+is))\s+(?:my\s+)?(.+)", lc)
     if m or re.search(r"\.(pdf|docx?|xlsx?|pptx?|txt|py|md)\b", lc):
         query = m.group(1).strip() if m else q
         from skills import file_finder
-        return file_finder.search_reply(query)
+        res = file_finder.search_reply(query)
+        # "search for the best laptop for students" is a web question that just
+        # happens to start with "search for". If nothing on disk matches, it
+        # wasn't about files — let the web answer instead of saying "no files".
+        if res.get("ok") and res.get("results"):
+            return res
+        if res.get("error") in ("everything_missing", "everything_not_running"):
+            return res
+        if _worth_searching(lc):
+            from skills import web
+            hit = web.search(q)
+            if hit.get("ok"):
+                return hit
+        return res
 
-    # stocks
+    # stocks — but only about *your* portfolio. "tesla stock price" mentions a
+    # company we don't hold, and used to be answered with the portfolio total,
+    # which is simply the wrong question answered confidently.
     if _STOCK_WORDS.search(lc) or _PORTFOLIO_PHRASE.search(lc):
+        if _about_other_company(q, lc):
+            from skills import web
+            hit = web.search(q)
+            if hit.get("ok"):
+                return hit
         return _stocks(q, lc)
 
     # mail / internships
@@ -101,10 +129,14 @@ def route(text: str) -> dict:
         return {"ok": True, "intent": "help",
                 "reply": "Try a setup name (code / study / chill), “find my resume”, or “open jarvis”."}
 
-    # date / time — answered locally, never guessed
+    # date / time — answered locally, never guessed.
+    # Anchored to the end of the question on purpose: "what time does the
+    # supermarket close" is about a shop's hours, not about now, and used to
+    # come back as today's date.
     if re.search(r"\b(?:what(?:'s| is|s)?|tell me)\s+(?:the\s+)?"
-                 r"(?:date|day|time)\b|\bwhat day is it\b|\btoday'?s date\b|"
-                 r"\btime is it\b|\bwhat'?s today\b", lc):
+                 r"(?:date|day|time)(?:\s+is\s+it)?\s*(?:today|now|right now)?\s*[?.!]?$"
+                 r"|\bwhat day is it\b|\btoday'?s date\b|\bwhat time is it\b"
+                 r"|\bwhat'?s today\b", lc):
         from skills import web
         return web.date_answer()
 
@@ -118,16 +150,21 @@ def route(text: str) -> dict:
             place = m.group(1)
         return web.weather(place, offset=web.day_offset(lc))
 
-    # Anything factual goes to the web, not the local model. A 3B model asked
-    # "who invented the telephone" will answer confidently and sometimes
-    # wrongly; a quoted search result is checkable.
-    if _looks_factual(lc):
+    # The web is the default, not the local model.
+    #
+    # It used to be the other way round: only sentences starting with a
+    # question word went to search, so bare phrasing fell through to a 3B model
+    # that answers from memory. "auckland university term dates" got a
+    # confident non-answer, "restaurants near auckland cbd" got an invented
+    # restaurant. Anything the deterministic handlers above didn't claim is a
+    # question about the world, so look it up.
+    if _worth_searching(lc):
         from skills import web
         res = web.search(q)
         if res.get("ok"):
             return res
 
-    # everything else → local LLM if it's around
+    # local model only when the web had nothing, or for conversational scraps
     from core import llm_local
     if llm_local.is_available():
         return {"ok": True, "intent": "llm", "reply": llm_local.ask(q)}
@@ -135,23 +172,31 @@ def route(text: str) -> dict:
             "reply": "No matching command — install Ollama (ollama.com) to unlock free-form questions."}
 
 
-# Questions about the world, as opposed to chit-chat or requests to do something.
-_FACTUAL = re.compile(
-    r"^\s*(who|what|when|where|why|how|which|whose|is|are|was|were|does|do|did|can|"
-    r"could|should|tell me|explain|define|look ?up|search|google)\b"
+# Small talk, and things aimed at Jarvis rather than at the world. Searching
+# the web for "thanks" or "are you there" would be silly.
+_CHITCHAT = re.compile(
+    r"^\s*(hi|hey|hello|yo|sup|thanks|thank you|ta|cheers|ok|okay|cool|nice|"
+    r"good (?:morning|afternoon|evening|night)|bye|goodbye|"
+    r"how are you|who are you|what are you|what can you do|are you there|"
+    r"tell me a joke|say something)\b"
 )
-_NOT_FACTUAL = re.compile(
-    r"\b(my|i|me|jarvis)\b.*\b(file|folder|portfolio|stock|holding|email|inbox|"
-    r"setup|application)s?\b"
+# Still about the user's own machine/data, which the handlers above own.
+_PERSONAL = re.compile(
+    r"\b(my|i|me)\b.*\b(file|folder|document|portfolio|stock|holding|email|"
+    r"inbox|setup|application|cv|resume)s?\b"
 )
 
 
-def _looks_factual(lc: str) -> bool:
-    if not _FACTUAL.match(lc):
+def _worth_searching(lc: str) -> bool:
+    """Should this go to the web? Almost everything left by this point."""
+    words = lc.split()
+    if len(words) < 2:
+        return False          # a single word is usually a command, not a query
+    if _CHITCHAT.match(lc):
         return False
-    if _NOT_FACTUAL.search(lc):
-        return False      # it's about the user's own stuff, handled above
-    return len(lc.split()) >= 3
+    if _PERSONAL.search(lc):
+        return False
+    return True
 
 
 # Phrasing that makes something a question rather than a command. Used to stop
@@ -323,6 +368,35 @@ def _mail(lc: str) -> dict:
     except Exception as e:
         return {"ok": False, "intent": "mail",
                 "reply": f"Inbox unavailable — {str(e).splitlines()[0][:110]}"}
+
+
+# Companies people ask about by name. If one appears and it isn't something
+# held, the question is about that company, not about the portfolio.
+_COMPANIES = (
+    "tesla", "apple", "google", "alphabet", "amazon", "microsoft", "meta",
+    "facebook", "netflix", "nvidia", "intel", "amd", "openai", "anthropic",
+    "samsung", "sony", "toyota", "boeing", "disney", "uber", "airbnb",
+    "spotify", "coinbase", "bitcoin", "ethereum", "gold", "oil",
+)
+
+
+def _about_other_company(q: str, lc: str) -> bool:
+    """A named company (or asset) we don't hold — answer about it, not the
+    portfolio. 'my'/'our' means they really do mean their own holdings."""
+    if re.search(r"\b(my|our|i own|i hold)\b", lc):
+        return False
+    named = [c for c in _COMPANIES if re.search(r"\b" + c + r"\b", lc)]
+    if not named:
+        return False
+    from skills import stocks
+    if not stocks._loaded:
+        return True          # can't check holdings cheaply; treat as external
+    try:
+        held = {h["ticker"] for h in stocks.holdings().get("holdings", [])}
+    except Exception:
+        return True
+    # crude but adequate: if any held ticker appears in the text, it's ours
+    return not any(re.search(r"\b" + t.lower() + r"\b", lc) for t in held)
 
 
 def _mentioned_ticker(q: str, lc: str, held_only=True):

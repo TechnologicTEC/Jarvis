@@ -209,10 +209,22 @@ def _tavily(query: str):
     try:
         from tavily import TavilyClient
         r = TavilyClient(api_key=key).search(
-            query=query, search_depth="basic", include_answer=True,
-            max_results=4)
+            query=query,
+            search_depth=config.get("web", "search_depth", default="advanced"),
+            include_answer="advanced",
+            max_results=6,
+            # local questions ("term dates", "opening hours") answer badly
+            # against a global index
+            country=config.get("web", "country", default="new zealand"))
     except Exception:
-        return None
+        # `country` and advanced answers need a current client/plan; retry plain
+        try:
+            from tavily import TavilyClient
+            r = TavilyClient(api_key=key).search(
+                query=query, search_depth="basic", include_answer=True,
+                max_results=5)
+        except Exception:
+            return None
 
     answer = (r.get("answer") or "").strip()
     passages = []
