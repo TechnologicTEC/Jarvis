@@ -21,6 +21,8 @@ import urllib.parse
 
 from core import config
 
+BASE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
 # Where NZ student tech roles actually get posted.
 DEFAULT_SITES = [
     "seek.co.nz", "nz.indeed.com", "nz.linkedin.com", "sjs.co.nz",
@@ -186,6 +188,138 @@ _cache = {"at": 0.0, "items": [], "skipped": []}
 _lock = threading.Lock()
 _searching = [False]
 
+# ---------------------------------------------------------------------------
+# Dismissed listings
+#
+# Kept on disk so "seen" survives a restart — a job board reposts the same
+# roles for weeks, and re-reading them is the thing this feature exists to
+# avoid. Keyed by URL, which is stable per posting.
+# ---------------------------------------------------------------------------
+
+SEEN_PATH = os.path.join(BASE, "config", "jobs_seen.json")
+_seen_lock = threading.Lock()
+_seen_cache = {"at": 0.0, "data": None}
+
+
+def _load_seen() -> dict:
+    with _seen_lock:
+        if _seen_cache["data"] is not None:
+            return _seen_cache["data"]
+        try:
+            import json
+            with open(SEEN_PATH, encoding="utf-8") as f:
+                data = json.load(f)
+            if not isinstance(data, dict):
+                data = {}
+        except Exception:
+            data = {}
+        _seen_cache["data"] = data
+        return data
+
+
+def _save_seen(data: dict):
+    import json
+    tmp = SEEN_PATH + ".tmp"
+    try:
+        os.makedirs(os.path.dirname(SEEN_PATH), exist_ok=True)
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump(data, f, indent=2)
+            f.write("\n")
+        os.replace(tmp, SEEN_PATH)
+    except Exception:
+        pass
+
+
+def mark_seen(url: str, role: str = "") -> dict:
+    """Hide one listing from future results."""
+    url = (url or "").split("?")[0]
+    if not url:
+        return {"ok": False, "reply": "No listing given"}
+    data = _load_seen()
+    data[url] = {"role": role[:120], "at": time.strftime("%Y-%m-%d %H:%M")}
+    with _seen_lock:
+        _seen_cache["data"] = data
+    _save_seen(data)
+    # drop it from the cached page too, so the row goes immediately
+    with _lock:
+        _cache["items"] = [i for i in _cache["items"] if i.get("url") != url]
+    return {"ok": True, "seen": len(data),
+            "reply": f"Hidden — {role[:60]}" if role else "Hidden"}
+
+
+def unmark_seen(url: str = None) -> dict:
+    """Bring one back, or all of them if no url is given."""
+    data = _load_seen()
+    if url:
+        data.pop((url or "").split("?")[0], None)
+    else:
+        data = {}
+    with _seen_lock:
+        _seen_cache["data"] = data
+    _save_seen(data)
+    with _lock:
+        _cache["at"] = 0.0          # force a fresh search so they reappear
+    return {"ok": True, "seen": len(data),
+            "reply": "Showing all listings again" if not url else "Restored"}
+
+
+def seen_count() -> int:
+    return len(_load_seen())
+
+
+# ---------------------------------------------------------------------------
+# Remembered eligibility verdicts
+#
+# Tavily doesn't always return the same amount of a page, so the same posting
+# can look ineligible on one search and fine on the next — Fisher & Paykel's
+# 3rd/4th-year role was hidden once and then came back top-ranked. Once a hard
+# year requirement has been read from a posting, remember it: a role does not
+# stop requiring 3rd year because the fetch was shorter this time.
+# ---------------------------------------------------------------------------
+
+VERDICT_PATH = os.path.join(BASE, "config", "jobs_verdicts.json")
+_verdict_cache = {"data": None}
+
+# Only durable facts about the posting are worth remembering. "no year
+# restriction found" may simply mean we didn't get that far down the page.
+_STICKY = {"penultimate", "final year only", "3rd/4th year", "graduating soon",
+           "must have degree", "postgrad only", "senior role"}
+
+
+def _load_verdicts() -> dict:
+    if _verdict_cache["data"] is not None:
+        return _verdict_cache["data"]
+    try:
+        import json
+        with open(VERDICT_PATH, encoding="utf-8") as f:
+            data = json.load(f)
+        if not isinstance(data, dict):
+            data = {}
+    except Exception:
+        data = {}
+    _verdict_cache["data"] = data
+    return data
+
+
+def _remember_verdict(url: str, reason: str):
+    if reason not in _STICKY:
+        return
+    data = _load_verdicts()
+    if data.get(url) == reason:
+        return
+    data[url] = reason
+    _verdict_cache["data"] = data
+    try:
+        import json
+        tmp = VERDICT_PATH + ".tmp"
+        os.makedirs(os.path.dirname(VERDICT_PATH), exist_ok=True)
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump(data, f, indent=2)
+            f.write("\n")
+        os.replace(tmp, VERDICT_PATH)
+    except Exception:
+        pass
+
 
 def _sites():
     return config.get("jobs", "sites", default=DEFAULT_SITES) or DEFAULT_SITES
@@ -242,25 +376,29 @@ def known_companies() -> list:
     path = os.path.expandvars(config.get("jobs", "companies_file", default="") or "")
     if not path or not os.path.isfile(path):
         return []
+    out, seen = [], set()
     try:
         import openpyxl
         wb = openpyxl.load_workbook(path, read_only=True, data_only=True)
-        ws = wb[wb.sheetnames[0]]
-        rows = list(ws.iter_rows(values_only=True))
+        for sheet in wb.sheetnames:          # e.g. "Software Internships"
+            rows = list(wb[sheet].iter_rows(values_only=True))   # + "All Companies"
+            if not rows:
+                continue
+            header = [str(c or "").strip().lower() for c in rows[0]]
+            # "Company Name", "Company", "Employer" — match loosely
+            col = next((i for i, h in enumerate(header)
+                        if "company" in h or "employer" in h or "organisation" in h), 0)
+            for r in rows[1:]:
+                if col >= len(r) or not r[col]:
+                    continue
+                name = str(r[col]).strip()
+                if name and len(name) < 60 and name.lower() not in seen:
+                    seen.add(name.lower())
+                    out.append(name)
         wb.close()
     except Exception:
         return []
-    if not rows:
-        return []
-    header = [str(c or "").strip().lower() for c in rows[0]]
-    col = header.index("company") if "company" in header else 0
-    out = []
-    for r in rows[1:]:
-        if col < len(r) and r[col]:
-            name = str(r[col]).strip()
-            if name and len(name) < 60:
-                out.append(name)
-    return out[:60]
+    return out[:80]
 
 
 def _applied_companies():
@@ -282,6 +420,8 @@ def search(force: bool = False, max_results: int = 25) -> dict:
     sites = _sites()
     seen, items, skipped = {}, [], []
     applied = _applied_companies()
+    dismissed = set(_load_seen())
+    remembered = _load_verdicts()
 
     known = known_companies()
     known_lc = {k.lower() for k in known}
@@ -297,6 +437,8 @@ def search(force: bool = False, max_results: int = 25) -> dict:
             if not url or url in seen:
                 continue
             seen[url] = True
+            if url in dismissed:
+                continue          # you've already looked at this one
             # raw_content is the full posting; that's where "penultimate" and
             # "final year" actually appear.
             raw = (hit.get("raw_content") or "")[:12000]
@@ -311,6 +453,13 @@ def search(force: bool = False, max_results: int = 25) -> dict:
 
             parsed = _parse_title(title, url)
             elig = check_eligibility(body, title=f"{title} {parsed['role']}")
+            # a requirement read once still applies, even if this fetch was
+            # shorter and didn't include it
+            prior = remembered.get(url)
+            if elig["eligible"] and prior:
+                elig = {"eligible": False, "reason": prior}
+            elif not elig["eligible"]:
+                _remember_verdict(url, elig["reason"])
             row = {
                 "role": parsed["role"][:110],
                 "company": parsed["company"][:60],
@@ -346,8 +495,11 @@ def search(force: bool = False, max_results: int = 25) -> dict:
 
 def _result(items, skipped, cached):
     fresh = [i for i in items if not i["already_applied"]]
+    n_seen = seen_count()
     if not items:
-        reply = ("No new internships matched — Tavily needs a key for this "
+        reply = ("Nothing new — everything matching is either already seen or "
+                 "not open to your year." if n_seen else
+                 "No new internships matched — Tavily needs a key for this "
                  "(web.tavily_api_key), or try again later.")
     else:
         top = fresh[0] if fresh else items[0]
@@ -357,8 +509,10 @@ def _result(items, skipped, cached):
             reply += f" at {who}"
         if skipped:
             reply += f" · {len(skipped)} hidden (penultimate/final-year)"
+        if n_seen:
+            reply += f" · {n_seen} dismissed"
     return {"ok": True, "intent": "jobs", "items": items, "skipped": skipped,
-            "cached": cached, "reply": reply}
+            "cached": cached, "seen": n_seen, "reply": reply}
 
 
 def warm():

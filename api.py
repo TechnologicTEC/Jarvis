@@ -388,6 +388,14 @@ class JarvisApi:
             return {"ok": False, "items": [], "skipped": [],
                     "reply": f"Job search failed — {str(e).splitlines()[0][:110]}"}
 
+    def jobs_seen(self, url, role=""):
+        from skills import jobs
+        return jobs.mark_seen(url, role or "")
+
+    def jobs_unsee(self, url=None):
+        from skills import jobs
+        return jobs.unmark_seen(url)
+
     def open_url(self, url):
         import webbrowser
         try:

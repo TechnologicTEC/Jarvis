@@ -479,6 +479,14 @@ Two implementation notes worth keeping:
 Searches run in parallel (73s → ~2s) and are cached for `jobs.cache_hours`
 (default 6), because each one costs Tavily credits.
 
+### Dismissing what you've read
+
+Each listing has a **seen** button. The row goes immediately and the posting
+never comes back — boards repost the same roles for weeks, and re-reading them
+is the thing this is meant to save you. Dismissals are kept in
+`config/jobs_seen.json` (gitignored) so they survive a restart, keyed by URL.
+**show all (n)** in the header brings them back.
+
 ### Your companies list
 
 Set `jobs.companies_file` to that spreadsheet (first column, or a column headed

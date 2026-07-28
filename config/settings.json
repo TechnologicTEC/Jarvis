@@ -18,7 +18,7 @@
   },
   "jobs": {
     "cache_hours": 6,
-    "companies_file": "",
+    "companies_file": "c:\\Users\\you\\Documents\\Jarvis\\Software_Combined_Database.xlsx",
     "poll_hours": 0
   },
   "web": {

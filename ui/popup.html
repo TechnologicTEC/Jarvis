@@ -183,6 +183,7 @@ body.compact,body.compact html{background:transparent!important;overflow:hidden}
 <div style="font:500 12px/1 'Space Grotesk',sans-serif;letter-spacing:.2em;color:#eef4ff;text-transform:uppercase">Internships</div>
 <div style="display:flex;align-items:center;gap:10px">
 <div id="jv-jobs-hidden" class="jv-hint" style="color:#6f81b5"></div>
+<div id="jv-jobs-showall" class="jv-tog jv-hint" style="display:none;border:1px solid rgba(150,180,235,.2);border-radius:8px;padding:6px 11px">show all</div>
 <div id="jv-jobs-refresh" class="jv-tog jv-hint" style="border:1px solid rgba(150,180,235,.2);border-radius:8px;padding:6px 11px">refresh</div>
 </div>
 </div>
@@ -531,20 +532,42 @@ body.compact,body.compact html{background:transparent!important;overflow:hidden}
         var html='';
         items.forEach(function(j){
           var applied=j.already_applied;
-          html+='<div class="jv-row jv-job" data-url="'+esc(j.url)+'" style="display:flex;align-items:center;justify-content:space-between;gap:14px;padding:11px 16px;cursor:pointer">'
-            +'<div style="min-width:0"><div style="font:400 13px/1.25 \'Space Grotesk\',sans-serif;color:'+(applied?'#7e8cc0':'#eef4ff')+'">'+esc(j.role)+'</div>'
+          html+='<div class="jv-row jv-job" data-url="'+esc(j.url)+'" data-role="'+esc(j.role)+'" style="display:flex;align-items:center;justify-content:space-between;gap:14px;padding:11px 16px">'
+            +'<div class="jv-job-open" style="min-width:0;flex:1;cursor:pointer"><div style="font:400 13px/1.25 \'Space Grotesk\',sans-serif;color:'+(applied?'#7e8cc0':'#eef4ff')+'">'+esc(j.role)+'</div>'
             +'<div style="font:400 10px/1.4 \'JetBrains Mono\',monospace;color:#6f81b5;margin-top:4px">'
             +esc(j.company||j.source)+(j.where?' · '+esc(j.where):'')+' · '+esc(j.source)
             +(applied?' · <span style="color:#c98a9b">already applied</span>':'')+'</div></div>'
-            +'<div style="font:400 9.5px/1 \'JetBrains Mono\',monospace;color:#5a68a0;flex:none">open</div></div>';
+            +'<div style="display:flex;align-items:center;gap:8px;flex:none">'
+            +'<div class="jv-job-open jv-tog" style="font:400 9.5px/1 \'JetBrains Mono\',monospace;color:#5a68a0;border:1px solid rgba(150,180,235,.2);border-radius:6px;padding:5px 9px">open</div>'
+            +'<div class="jv-job-seen jv-tog" title="hide this one for good" style="font:400 9.5px/1 \'JetBrains Mono\',monospace;color:#5a68a0;border:1px solid rgba(150,180,235,.2);border-radius:6px;padding:5px 9px">seen</div>'
+            +'</div></div>';
         });
         list.innerHTML=html;
         [].slice.call(list.querySelectorAll('.jv-job')).forEach(function(row){
-          row.addEventListener('click',function(){
-            var a2=api();if(a2&&a2.open_url){a2.open_url(row.getAttribute('data-url'));say('Opening posting');}});});
+          var url=row.getAttribute('data-url');
+          [].slice.call(row.querySelectorAll('.jv-job-open')).forEach(function(el){
+            el.addEventListener('click',function(e){e.stopPropagation();
+              var a2=api();if(a2&&a2.open_url){a2.open_url(url);say('Opening posting');}});});
+          var seenBtn=row.querySelector('.jv-job-seen');
+          if(seenBtn)seenBtn.addEventListener('click',function(e){e.stopPropagation();
+            var a2=api();if(!a2||!a2.jobs_seen)return;
+            // take the row out straight away; the backend remembers it so it
+            // won't come back on the next search either
+            row.style.transition='opacity .18s';row.style.opacity='0';
+            setTimeout(function(){row.remove();
+              if(!list.querySelector('.jv-job'))list.innerHTML='<div class="jv-hint" style="padding:16px">Nothing left — hit refresh, or “show all” to bring dismissed ones back.</div>';},180);
+            a2.jobs_seen(url,row.getAttribute('data-role')||'').then(function(r){
+              if(r&&r.seen!=null)paintSeen(r.seen);}).catch(function(){});});
+        });
+        paintSeen(r.seen||0);
       }).catch(function(){list.innerHTML='<div class="jv-hint" style="padding:16px">Job search failed.</div>';});}
+    function paintSeen(n){var b=document.getElementById('jv-jobs-showall');if(!b)return;
+      b.style.display=n?'block':'none';b.textContent='show all ('+n+')';}
     var jrefresh=document.getElementById('jv-jobs-refresh');
     if(jrefresh)jrefresh.addEventListener('click',function(){say('Refreshing job boards…');loadJobs(true);});
+    var jshow=document.getElementById('jv-jobs-showall');
+    if(jshow)jshow.addEventListener('click',function(){var a=api();if(!a||!a.jobs_unsee)return;
+      a.jobs_unsee().then(function(r){say((r&&r.reply)||'Restored');paintSeen(0);loadJobs(true);});});
 
     // ---- Setups tab (list + create/edit) ----
     function loadSetups(){var a=api();if(!a||!a.get_setups_detail)return;

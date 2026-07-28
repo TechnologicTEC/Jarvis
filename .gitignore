@@ -5,14 +5,20 @@ __pycache__/
 .venv/
 venv/
 
-# Local machine overrides (paths, email, model choices) — see config/settings.json
+# Local machine overrides (paths, email, API keys) - see config/settings.json
 config/settings.local.json
 
 # Runtime state
 *.log
 models/
+config/jobs_seen.json
+config/jobs_verdicts.json
 
-# Google OAuth client + token, and tracker backups — never commit these
+# Your own research - company lists, rates, ratings. Not for a public repo.
+Software_Combined_Database.xlsx
+*_Database.xlsx
+
+# Google OAuth client + token, and tracker backups - never commit these
 config/gmail_credentials.json
 config/gmail_token.json
 *.jarvis-backup-*.xlsx
