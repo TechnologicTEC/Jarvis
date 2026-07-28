@@ -17,7 +17,7 @@
     "wake_cooldown": 3.0
   },
   "discord": {
-    "channel_ids": []
+    "channel_ids": [1397120047864086638]
   },
   "jobs": {
     "cache_hours": 6,

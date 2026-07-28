@@ -46,14 +46,14 @@ def _season_terms():
 
 
 def _default_queries():
+    """Four queries, not six. Each costs API credits and the free monthly
+    allowance is modest — two extra phrasings mostly returned the same roles."""
     a, b, nxt = _season_terms()
     return [
         f"software engineering internship Auckland New Zealand summer {a} apply",
-        f"software developer internship Auckland New Zealand student {b}",
-        f"computer science internship Auckland New Zealand summer {nxt}",
-        f"summer intern software New Zealand applications open {a}",
+        f"software developer internship Auckland student {b}",
+        f"computer science internship Auckland summer {nxt} applications open",
         f"IT data embedded engineering internship Auckland student {nxt}",
-        "software engineering internship New Zealand apply now open",
     ]
 
 
@@ -365,6 +365,18 @@ _INDEX_URL = re.compile(
 
 def _parse_title(title: str, url: str) -> dict:
     t = (title or "").strip()
+    # DuckDuckGo prefixes a breadcrumb — "nz.linkedin.com › jobs › view…" —
+    # which was ending up as the company name. Keep the last segment; a regex
+    # that stripped the prefix ate the whole title and silently fell back.
+    if "›" in t:
+        tail = t.split("›")[-1].strip()
+        # "viewSoftware Engineering Intern" — the crumb runs into the title
+        tail = re.sub(r"^(?:view|jobs?|careers?|search)(?=[A-Z])", "", tail)
+        tail = re.sub(r"^\d{4,}(?=[A-Za-z])", "", tail)   # seek: "12345Intern…"
+        if len(tail) > 4:
+            t = tail
+    t = re.sub(r"\s*[-|]\s*(LinkedIn|Seek|Indeed|Jobs?|Careers?)\s*$", "", t,
+               flags=re.I).strip() or t
     company, role, where = "", t, ""
     m = _HIRING.match(t)
     if m:
@@ -561,10 +573,21 @@ def _queries():
     return config.get("jobs", "queries", default=None) or _default_queries()
 
 
+# Set when the search API refuses us, so the UI can say why instead of
+# reporting "nothing found" — a silent empty result is indistinguishable from
+# "there are no jobs", which is exactly the wrong thing to tell someone.
+_last_error = {"msg": ""}
+
+
+def last_error() -> str:
+    return _last_error["msg"]
+
+
 def _tavily_search(query: str, sites, time_range: str = "year"):
     from skills import web
     key = web._tavily_key()
     if not key:
+        _last_error["msg"] = "No Tavily API key set (web.tavily_api_key)."
         return []
     try:
         from tavily import TavilyClient
@@ -578,6 +601,50 @@ def _tavily_search(query: str, sites, time_range: str = "year"):
             # and hid nothing at all — which is the whole point of this.
             include_raw_content=True)
         return r.get("results") or []
+    except Exception as e:
+        name = type(e).__name__
+        if "UsageLimit" in name or "quota" in str(e).lower():
+            _last_error["msg"] = ("Tavily monthly credits are used up — "
+                                  "using keyless search instead.")
+        elif "Invalid" in name or "401" in str(e):
+            _last_error["msg"] = "Tavily rejected the API key."
+        else:
+            _last_error["msg"] = f"Search failed — {name}"
+        return []
+
+
+def _ddgs_jobs(query: str, sites):
+    """Keyless fallback. Not as good as Tavily — no page content, so the
+    eligibility filter has less to read — but it keeps working when the
+    Tavily allowance runs out, instead of reporting 'no jobs found'."""
+    try:
+        try:
+            from ddgs import DDGS
+        except Exception:
+            from duckduckgo_search import DDGS
+        out, lock = [], threading.Lock()
+
+        def one(site):
+            try:
+                with DDGS() as ddg:
+                    hits = list(ddg.text(f"{query} site:{site}", max_results=8))
+            except Exception:
+                return
+            with lock:
+                for h in hits:
+                    out.append({"title": h.get("title") or "",
+                                "url": h.get("href") or h.get("link") or "",
+                                "content": h.get("body") or "",
+                                "raw_content": "", "score": 0.5})
+
+        # in parallel: run one site at a time this took over a minute
+        th = [threading.Thread(target=one, args=(s,), daemon=True)
+              for s in list(sites)[:4]]
+        for t in th:
+            t.start()
+        for t in th:
+            t.join(timeout=20)
+        return out
     except Exception:
         return []
 
@@ -592,18 +659,30 @@ def _search_all(queries, sites):
     coverage for boards that don't date their pages.
     """
     out, lock = [], threading.Lock()
+    _last_error["msg"] = ""
 
     def go(q, window):
         hits = _tavily_search(q, sites, time_range=window)
         with lock:
             out.extend(hits)
 
+    # One window per query, alternating, rather than both for every query:
+    # running both doubled the credit cost for a modest gain, and the free
+    # monthly allowance is small enough that it ran out mid-development.
+    pairs = [(q, "month" if i % 2 == 0 else "year")
+             for i, q in enumerate(queries)]
     threads = [threading.Thread(target=go, args=(q, w), daemon=True)
-               for q in queries for w in ("month", "year")]
+               for q, w in pairs]
     for t in threads:
         t.start()
     for t in threads:
         t.join(timeout=45)
+
+    # Tavily unavailable (no key, or the allowance is gone): fall back to the
+    # keyless search rather than pretending there are no jobs.
+    if not out and _last_error["msg"]:
+        for q in queries[:3]:
+            out.extend(_ddgs_jobs(q, sites))
     return out
 
 
@@ -910,11 +989,15 @@ def search(force: bool = False, max_results: int = 25) -> dict:
 def _result(items, skipped, cached, cov=None):
     fresh = [i for i in items if not i["already_applied"] and not i.get("careers_page")]
     n_seen = seen_count()
+    err = last_error()
     if not items:
-        reply = ("Nothing new — everything matching is either already seen or "
-                 "not open to your year." if n_seen else
-                 "No new internships matched — Tavily needs a key for this "
-                 "(web.tavily_api_key), or try again later.")
+        if err:
+            # never report "no jobs" when the search itself didn't run
+            reply = err
+        else:
+            reply = ("Nothing new — everything matching is either already seen "
+                     "or not open to your year." if n_seen else
+                     "No internships matched right now.")
     else:
         pages = sum(1 for i in items if i.get("careers_page"))
         top = fresh[0] if fresh else items[0]
@@ -932,8 +1015,12 @@ def _result(items, skipped, cached, cov=None):
     if cov.get("total"):
         reply += (f" · career pages: {cov['checked']}/{cov['total']} companies"
                   + (f", {cov['pending']} still to check" if cov.get("pending") else ""))
+    else:
+        if err:
+            reply += f" · note: {err}"
     return {"ok": True, "intent": "jobs", "items": items, "skipped": skipped,
-            "cached": cached, "seen": n_seen, "coverage": cov, "reply": reply}
+            "cached": cached, "seen": n_seen, "coverage": cov,
+            "error": err, "reply": reply}
 
 
 def warm():
