@@ -66,9 +66,40 @@ _APP_CONTEXT = re.compile(
 
 
 def credentials_path() -> str:
+    """Where the OAuth client file is, being forgiving about how it got there.
+
+    Windows hides known extensions, so saving it as "gmail_credentials.json"
+    in a folder that already shows "gmail_credentials" produces
+    gmail_credentials.json.json — and Google's own download is named
+    client_secret_<id>.apps.googleusercontent.com.json. Accept all of it rather
+    than reporting "missing" at a file the user can plainly see.
+    """
+    import glob
+
     p = os.path.expandvars(config.get("inbox", "credentials_path",
                                       default="config/gmail_credentials.json"))
-    return p if os.path.isabs(p) else os.path.join(BASE, p)
+    p = os.path.normpath(p if os.path.isabs(p) else os.path.join(BASE, p))
+    if os.path.isfile(p):
+        return p
+
+    cfg_dir = os.path.join(BASE, "config")
+    for pattern in ("gmail_credentials.json.json", "gmail_credentials*.json",
+                    "client_secret*.json", "credentials*.json"):
+        for hit in sorted(glob.glob(os.path.join(cfg_dir, pattern))):
+            if _looks_like_client(hit):
+                return hit
+    return p          # the canonical path, for the "expected at ..." message
+
+
+def _looks_like_client(path: str) -> bool:
+    try:
+        import json
+        with open(path, encoding="utf-8") as f:
+            d = json.load(f)
+        node = d.get("installed") or d.get("web") or {}
+        return bool(node.get("client_id") and node.get("client_secret"))
+    except Exception:
+        return False
 
 
 def has_credentials() -> bool:
