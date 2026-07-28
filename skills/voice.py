@@ -411,6 +411,22 @@ def _play(path: str):
         _play_proc = None
 
 
+def is_speaking() -> bool:
+    """True while a reply is actually being read out."""
+    if _play_proc == "sounddevice":
+        try:
+            import sounddevice as sd
+            return bool(sd.get_stream().active)
+        except Exception:
+            return True     # we started it and weren't told it finished
+    if _play_proc is not None:
+        try:
+            return _play_proc.poll() is None
+        except Exception:
+            return False
+    return False
+
+
 def stop_speaking():
     """Silence any in-progress playback, whichever backend is playing."""
     global _play_proc

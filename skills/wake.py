@@ -138,7 +138,26 @@ def set_level_callback(fn):
     _level_cb = fn
 
 
-def _capture(q):
+def _silence_self() -> bool:
+    """Cut Jarvis's own playback the instant the wake word lands.
+
+    Returns whether it was actually speaking, so the caller can discard the
+    pre-roll — that lead is from *before* detection, so if Jarvis was talking
+    it contains Jarvis, not you.
+    """
+    try:
+        from skills import voice
+        speaking = voice.is_speaking()
+        voice.stop_speaking()
+        if speaking:
+            # let the device drain so the tail isn't recorded as speech
+            time.sleep(0.12)
+        return speaking
+    except Exception:
+        return False
+
+
+def _capture(q, drop_lead: bool = False):
     """Read the already-open stream until the speaker stops. float32 audio.
 
     The speech/silence gate is relative to the room rather than a fixed number.
@@ -149,11 +168,23 @@ def _capture(q):
     import numpy as np
 
     with _preroll_lock:
-        lead = list(_preroll[-CAPTURE_LEAD_FRAMES:])
+        lead = [] if drop_lead else list(_preroll[-CAPTURE_LEAD_FRAMES:])
         recent = [float(np.sqrt(np.mean((np.squeeze(f).astype("float32") / 32768.0) ** 2)))
                   for f in _preroll[-20:]]
+        if drop_lead:
+            _preroll.clear()      # it holds Jarvis's voice, not the user's
     floor = min(recent) if recent else 0.0
     gate = max(0.006, min(CAPTURE_SILENCE_RMS, floor * 4 + 0.004))
+    if drop_lead:
+        # The room's noise floor was measured while a speaker was playing, so
+        # it reads high; fall back to the plain threshold.
+        gate = CAPTURE_SILENCE_RMS
+        # discard whatever is already queued — it is the tail of the reply
+        try:
+            while True:
+                q.get_nowait()
+        except Exception:
+            pass
 
     frames = list(lead)
     silence = voiced = 0
@@ -257,13 +288,21 @@ def start(on_wake) -> bool:
                             if score >= _threshold() and (now - _last_fire) > cooldown:
                                 _last_fire = now
                                 _model.reset()
+                                # Silence Jarvis BEFORE recording, not after.
+                                # stop_speaking() used to run in the wake
+                                # handler, which fires only once the utterance
+                                # is already captured — so the microphone spent
+                                # that whole time recording Jarvis's own reply
+                                # and "Hey Jarvis stop" came back as
+                                # "stop this train was...".
+                                was_speaking = _silence_self()
                                 # Keep reading THIS stream straight into the
                                 # recording. Closing it and opening another
                                 # left a few hundred ms of dead air exactly
                                 # where the question starts, which is why words
                                 # went missing ("what is the weather in
                                 # Auckland" came back as "the weather...").
-                                utterance = _capture(q)
+                                utterance = _capture(q, drop_lead=was_speaking)
                                 pause()
                                 try:
                                     on_wake(utterance)
