@@ -213,6 +213,15 @@ def _capture(q, drop_lead: bool = False):
         # Nothing said at all: give up early rather than banking 15s of silence.
         if voiced == 0 and len(frames) > 38:
             break
+
+        # A short command like "stop" is finished as soon as it's said. Peek at
+        # the audio during the first pause and, if that's all it was, close the
+        # microphone now — waiting for the full silence window meant whatever
+        # you said next was recorded too.
+        # NB: do not transcribe here to detect a finished command. Whisper on
+        # this thread blocks frame consumption for ~1s, the queue backs up and
+        # the stream desyncs — tried it, and captures came back empty. A
+        # trailing command is trimmed after the fact instead (voice.split_command).
     if not frames:
         return None
     pcm = np.concatenate([np.squeeze(f) for f in frames]).astype("float32")

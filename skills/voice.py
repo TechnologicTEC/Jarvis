@@ -191,7 +191,8 @@ def transcribe(audio) -> str:
         audio, language="en", beam_size=1, vad_filter=True,
         condition_on_previous_text=False,
     )
-    return strip_wake(" ".join(s.text.strip() for s in segments).strip())
+    raw = " ".join(s.text.strip() for s in segments).strip()
+    return split_command(raw)
 
 
 # The pre-roll deliberately includes the tail of "Hey Jarvis" so the first real
@@ -199,6 +200,53 @@ def transcribe(audio) -> str:
 # Drop it rather than routing on it.
 _WAKE_PREFIX = re.compile(
     r"^\s*(?:hey|hi|ok|okay)?[\s,]*jar+v[ie]s+[\s,.!?-]*", re.I)
+
+
+# Short commands that are complete the moment they're said. Recognising these
+# lets a capture end immediately instead of waiting to see if more is coming —
+# otherwise "Hey Jarvis stop" keeps the mic open and hoovers up whatever you
+# say next.
+_TERMINAL = re.compile(
+    r"^\s*(stop|quiet|shut up|be quiet|stop talking|shush|cancel|"
+    r"nevermind|never mind|thanks|thank you|that'?s all|forget it|"
+    r"go away|dismiss)\s*[.!]?\s*$", re.I)
+
+
+def is_terminal_command(text: str) -> bool:
+    """Is this a complete short command needing nothing further?"""
+    return bool(_TERMINAL.match(strip_wake(text or "")))
+
+
+# The same words near the start of a longer transcript. A word or two of slack
+# is allowed in front because the wake word is often mangled — "Hey Jarvis
+# stop" has come back as "Java stop." and as "Jarvis, stop." — and an anchored
+# match would miss all of those.
+_TERMINAL_LEAD = re.compile(
+    # only greeting/wake-word-shaped slack may precede the command, so
+    # "can you stop, please do" is left intact while "Java stop." is not
+    r"^\s*(?:(?:hey|hi|ok|okay|yo)[\s,]+)?"
+    r"(?:[a-z]*j[a-z]{1,6}s?[\s,]+)?"
+    r"(stop|quiet|shut up|be quiet|stop talking|shush|cancel|"
+    r"nevermind|never mind|that'?s all|forget it|go away|dismiss)"
+    r"\s*[.,!?]+\s+(?=\S)", re.I)
+
+
+def split_command(text: str) -> str:
+    """Trim anything after a completed short command.
+
+    The microphone stays open until it hears a pause, so saying "Hey Jarvis
+    stop" and then carrying on talking to someone else produced
+    "stop. So anyway, I told him the meeting was...". The command was finished
+    at the first full stop; the rest was never addressed to Jarvis.
+
+    Deliberately requires punctuation after the command, so "stop the music"
+    and "cancel my subscription" are left alone.
+    """
+    cleaned = strip_wake(text or "")
+    m = _TERMINAL_LEAD.match(cleaned)
+    if not m:
+        return cleaned
+    return m.group(1)
 
 
 def strip_wake(text: str) -> str:
