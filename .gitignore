@@ -13,6 +13,7 @@ config/settings.local.json
 models/
 config/jobs_seen.json
 config/jobs_verdicts.json
+config/jobs_companies.json
 
 # Your own research - company lists, rates, ratings. Not for a public repo.
 Software_Combined_Database.xlsx

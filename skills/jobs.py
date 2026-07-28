@@ -32,13 +32,32 @@ DEFAULT_SITES = [
 
 # Role wording to search for. Kept broad across engineering/CS but always
 # anchored to software or computing, per what you asked for.
-DEFAULT_QUERIES = [
-    "software engineering intern Auckland New Zealand summer 2026 2027 apply",
-    "software developer internship Auckland New Zealand student",
-    "computer science internship Auckland New Zealand summer student",
-    "graduate software intern New Zealand remote student 2026",
-    "IT or data or embedded engineering internship Auckland student",
-]
+def _season_terms():
+    """The season that's actually open for applications.
+
+    NZ summer internships run November-February and recruit through the middle
+    of the year, so from about March the live season is the *next* one. Without
+    this the searches kept surfacing the season just gone.
+    """
+    import datetime
+    t = datetime.date.today()
+    start = t.year if t.month >= 3 else t.year - 1
+    return f"{start}/{start + 1}", f"{start} {start + 1}", str(start + 1)
+
+
+def _default_queries():
+    a, b, nxt = _season_terms()
+    return [
+        f"software engineering internship Auckland New Zealand summer {a} apply",
+        f"software developer internship Auckland New Zealand student {b}",
+        f"computer science internship Auckland New Zealand summer {nxt}",
+        f"summer intern software New Zealand applications open {a}",
+        f"IT data embedded engineering internship Auckland student {nxt}",
+        "software engineering internship New Zealand apply now open",
+    ]
+
+
+DEFAULT_QUERIES = _default_queries()
 
 # ---------------------------------------------------------------------------
 # Eligibility — the bit that saves you the scrolling
@@ -122,6 +141,68 @@ def season_is_past(text: str) -> bool:
         if end == today.year and today.month > 3:
             return True
     return False
+
+
+_VERIFY_UA = {
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+                  "(KHTML, like Gecko) Chrome/122 Safari/537.36",
+    "Accept-Language": "en-NZ,en;q=0.9",
+}
+
+
+def verify_open(url: str) -> dict:
+    """Fetch the posting itself and see whether it's actually live.
+
+    This is the only reliable check. Tavily's extraction routinely omits the
+    status line, so closed roles were being shown as open — fetching the page
+    directly finds "No longer accepting applications" on postings that looked
+    fine, and a dead advert 404s outright.
+
+    Returns {"open": bool, "reason": str, "checked": bool}; checked is False
+    when the fetch failed, in which case the posting is left alone rather than
+    hidden on a network hiccup.
+    """
+    if not url:
+        return {"open": True, "reason": "", "checked": False}
+    try:
+        import requests
+        r = requests.get(url, headers=_VERIFY_UA, timeout=12,
+                         allow_redirects=True)
+    except Exception:
+        return {"open": True, "reason": "", "checked": False}
+
+    if r.status_code in (404, 410):
+        return {"open": False, "reason": "posting removed", "checked": True}
+    if r.status_code >= 400:
+        return {"open": True, "reason": "", "checked": False}
+
+    text = re.sub(r"<[^>]+>", " ", r.text)
+    text = re.sub(r"\s+", " ", text)
+    head = _posting_only(text)[:6000]
+    if _CLOSED.search(head):
+        return {"open": False, "reason": "closed", "checked": True}
+    age = posting_age_days(head)
+    if age is not None and age > _MAX_AGE_DAYS:
+        return {"open": False, "reason": f"posted {round(age / 30)} months ago",
+                "checked": True}
+    return {"open": True, "reason": "", "checked": True}
+
+
+def _verify_all(rows):
+    """Check the shortlist in parallel — one fetch each, ~1-2s overall."""
+    out, lock = {}, threading.Lock()
+
+    def go(row):
+        v = verify_open(row["url"])
+        with lock:
+            out[row["url"]] = v
+
+    threads = [threading.Thread(target=go, args=(r,), daemon=True) for r in rows]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join(timeout=15)
+    return out
 
 
 def check_freshness(text: str, title: str = "") -> dict:
@@ -269,14 +350,28 @@ def _parse_title(title: str, url: str) -> dict:
 
 
 def _is_individual_posting(url: str, title: str) -> bool:
-    """A specific job, rather than a board's search page."""
+    """A specific advert, rather than a page that lists adverts.
+
+    Careers landing pages were being shown and were no use — clicking one just
+    lands you on a site full of jobs, which is the position you started from.
+    """
     if _LISTING_PAGE.search(title or ""):
         return False
     u = (url or "").lower()
-    if re.search(r"/jobs?/view/|/job/\d|/jobs?/\d|/vacanc\w*/\d|jobid=", u):
+    if _INDEX_URL.search(u):
+        return False
+    # a specific posting nearly always carries an id in the path or query
+    if re.search(r"/jobs?/view/|/job/\d|/jobs?/\d|/vacanc\w*/\d|jobid=|"
+                 r"/positions?/\d|/opening/\d|[?&](?:gh_jid|lever|jid|id)=", u):
         return True
-    # a Seek listing looks like /job/12345678
-    return bool(re.search(r"seek\.co\.nz/job/\d+", u))
+    if re.search(r"seek\.co\.nz/job/\d+", u):
+        return True
+    # applicant-tracking hosts put the role in the path (workable, lever,
+    # greenhouse, bamboo); accept when the title names an actual role
+    if re.search(r"(workable|lever\.co|greenhouse\.io|bamboohr|smartrecruiters|"
+                 r"recruitee|teamtailor|jobvite|myworkday)", u):
+        return bool(_INTERNSHIP.search(title or ""))
+    return False
 
 
 # ---------------------------------------------------------------------------
@@ -383,7 +478,7 @@ _verdict_cache = {"data": None}
 # restriction found" may simply mean we didn't get that far down the page.
 _STICKY = {"penultimate", "final year only", "3rd/4th year", "graduating soon",
            "must have degree", "postgrad only", "senior role",
-           "closed", "past season"}
+           "closed", "past season", "posting removed"}
 
 
 def _is_sticky(reason: str) -> bool:
@@ -431,10 +526,11 @@ def _sites():
 
 
 def _queries():
-    return config.get("jobs", "queries", default=DEFAULT_QUERIES) or DEFAULT_QUERIES
+    # recomputed each call so the season rolls over without editing settings
+    return config.get("jobs", "queries", default=None) or _default_queries()
 
 
-def _tavily_search(query: str, sites):
+def _tavily_search(query: str, sites, time_range: str = "year"):
     from skills import web
     key = web._tavily_key()
     if not key:
@@ -442,8 +538,10 @@ def _tavily_search(query: str, sites):
     try:
         from tavily import TavilyClient
         r = TavilyClient(api_key=key).search(
-            query=query, search_depth="advanced", max_results=10,
+            query=query, search_depth="advanced", max_results=20,
             country="new zealand", include_domains=list(sites),
+            # bias to recent pages: boards keep years of dead adverts indexed
+            time_range=time_range,
             # The year requirement lives in the posting body, not the snippet.
             # Without the full page the eligibility filter had nothing to read
             # and hid nothing at all — which is the whole point of this.
@@ -454,15 +552,23 @@ def _tavily_search(query: str, sites):
 
 
 def _search_all(queries, sites):
-    """Run the queries at once. Sequentially this took 73s."""
+    """Run the queries at once. Sequentially this took 73s.
+
+    Each query runs twice: once over the last month and once over the year.
+    Search engines index dead adverts for years — an audit of what came back
+    found all but one posting already closed — so the recent pass is what
+    actually surfaces roles you can still apply to, while the wider pass keeps
+    coverage for boards that don't date their pages.
+    """
     out, lock = [], threading.Lock()
 
-    def go(q):
-        hits = _tavily_search(q, sites)
+    def go(q, window):
+        hits = _tavily_search(q, sites, time_range=window)
         with lock:
             out.extend(hits)
 
-    threads = [threading.Thread(target=go, args=(q,), daemon=True) for q in queries]
+    threads = [threading.Thread(target=go, args=(q, w), daemon=True)
+               for q in queries for w in ("month", "year")]
     for t in threads:
         t.start()
     for t in threads:
@@ -661,10 +767,11 @@ def search(force: bool = False, max_results: int = 25) -> dict:
             # Career-page results are kept even when the URL doesn't look like
             # a board posting — "/careers/", "/join-us" and the like are
             # exactly what a board search can't reach.
-            from_company = bool(hit.get("_company_hint"))
-            if not from_company and not _is_individual_posting(url, title):
+            # Only actual adverts. A careers index or a board's search page is
+            # just a link to more searching, which is what you already have.
+            if not _is_individual_posting(url, title):
                 continue
-            if from_company and _LISTING_PAGE.search(title or ""):
+            if _INDEX_URL.search(url) or _LISTING_PAGE.search(title or ""):
                 continue
             # listicles, course ads and social posts rank well and help not at all
             if _CONTENT_FARM.search(title or "") or _CONTENT_FARM.search(url):
@@ -728,10 +835,24 @@ def search(force: bool = False, max_results: int = 25) -> dict:
                re.sub(r"[^a-z0-9]", "", row["role"].lower())[:40])
         if key not in best or row["score"] > best[key]["score"]:
             best[key] = row
-    # real postings first, then careers landing pages, applied-to last
     items = sorted(best.values(),
-                   key=lambda r: (r["already_applied"], r["careers_page"],
-                                  -r["score"]))[:max_results]
+                   key=lambda r: (r["already_applied"], -r["score"]))[:max_results]
+
+    # Confirm each survivor is genuinely still open by fetching it. Done last,
+    # on the shortlist only, so it's ~15 requests rather than hundreds.
+    if config.get("jobs", "verify_open", default=True):
+        verdicts = _verify_all(items)
+        live = []
+        for row in items:
+            v = verdicts.get(row["url"], {})
+            if v.get("checked") and not v.get("open"):
+                row["reason"] = v["reason"]
+                skipped.append(row)
+                _remember_verdict(row["url"], v["reason"])
+            else:
+                row["verified"] = bool(v.get("checked"))
+                live.append(row)
+        items = live
 
     cov = coverage(known)
     with _lock:

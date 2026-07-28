@@ -523,6 +523,22 @@ than an ineligible one — you only find out after clicking through. Hidden when
 Verdicts stick, because Tavily doesn't always return the same amount of a page
 and a role doesn't stop being closed because this fetch was shorter.
 
+**Every listing shown is fetched and confirmed open.** Reading the search
+result's text is not enough — it routinely omits the status line, and postings
+that looked fine turned out to say "No longer accepting applications" once
+fetched, while a dead advert 404s outright. So the shortlist is checked
+directly, in parallel, before you see it. A fetch that fails leaves the posting
+alone rather than hiding it on a network hiccup.
+
+That check was audited against the live pages rather than trusted: of eighteen
+listings, exactly one had an apply button and no closed banner, and that was
+the one being shown. **Search engines index dead adverts for years** — this is
+why so few results survive, and why each query now runs twice, once over the
+last month and once over the year.
+
+Only specific adverts are listed. Careers landing pages were tried and dropped:
+clicking one lands you on a site full of jobs, which is where you started.
+
 ### Your companies list
 
 Set `jobs.companies_file` to that spreadsheet (first column, or a column headed
