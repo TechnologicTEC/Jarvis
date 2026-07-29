@@ -189,9 +189,96 @@ def weather(place: str = None, offset: int = 0) -> dict:
 # Search
 # --------------------------------------------------------------------------
 
+def _tavily_keys() -> list:
+    """Every configured key, in order of preference.
+
+    Accepts `tavily_api_keys` (a list) as well as the original single
+    `tavily_api_key`, so a second free-tier key can take over when the first
+    month's credits run out.
+    """
+    keys = []
+    many = config.get("web", "tavily_api_keys", default=None)
+    if isinstance(many, str):
+        many = [many]
+    for k in (many or []):
+        k = str(k).strip()
+        if k and k not in keys:
+            keys.append(k)
+    one = (config.get("web", "tavily_api_key", default="") or "").strip()
+    if one and one not in keys:
+        keys.append(one)
+    env = os.environ.get("TAVILY_API_KEY", "").strip()
+    if env and env not in keys:
+        keys.append(env)
+    return keys
+
+
+# Keys whose allowance is spent, and when we found out. Tavily allowances reset
+# monthly, so a key is retried after a while rather than written off forever.
+_spent: dict = {}
+_SPENT_RETRY = 6 * 3600
+
+
+def _is_spent(key: str) -> bool:
+    import time as _t
+    at = _spent.get(key)
+    return bool(at and (_t.time() - at) < _SPENT_RETRY)
+
+
+def mark_spent(key: str):
+    import time as _t
+    if key:
+        _spent[key] = _t.time()
+
+
+def usable_keys() -> list:
+    keys = _tavily_keys()
+    fresh = [k for k in keys if not _is_spent(k)]
+    return fresh or keys        # all spent? try anyway, the month may have ticked
+
+
 def _tavily_key() -> str:
-    key = config.get("web", "tavily_api_key", default="") or ""
-    return os.environ.get("TAVILY_API_KEY", "") if not key else key
+    keys = usable_keys()
+    return keys[0] if keys else ""
+
+
+def key_status() -> dict:
+    keys = _tavily_keys()
+    return {"total": len(keys), "usable": len(usable_keys()),
+            "spent": sum(1 for k in keys if _is_spent(k))}
+
+
+def tavily_search(**kwargs):
+    """Run a Tavily search, moving to the next key when one is exhausted.
+
+    Returns (result, error). Callers get a normal result if *any* key works,
+    so a spent key is invisible rather than a dead end.
+    """
+    keys = usable_keys()
+    if not keys:
+        return None, "No Tavily API key set (web.tavily_api_key)."
+    last_err = ""
+    for key in keys:
+        try:
+            from tavily import TavilyClient
+            return TavilyClient(api_key=key).search(**kwargs), ""
+        except Exception as e:
+            name, msg = type(e).__name__, str(e).lower()
+            # An exhausted free tier shows up as UsageLimit *or* Forbidden
+            # depending on the endpoint, and both should move to the next key
+            # rather than ending the search.
+            if ("UsageLimit" in name or "Forbidden" in name
+                    or "quota" in msg or "credit" in msg or "403" in msg):
+                mark_spent(key)
+                last_err = "Tavily credits used up on that key"
+                continue
+            if "Invalid" in name or "Unauthorized" in name or "401" in msg:
+                mark_spent(key)
+                last_err = "Tavily rejected a key"
+                continue
+            last_err = f"Search failed — {name}"
+            break
+    return None, last_err
 
 
 def _tavily(query: str):
@@ -203,28 +290,22 @@ def _tavily(query: str):
     "who invented the telephone" used to fail. Free tier; needs a key, so this
     is skipped silently when one isn't configured.
     """
-    key = _tavily_key()
-    if not key:
+    if not usable_keys():
         return None
-    try:
-        from tavily import TavilyClient
-        r = TavilyClient(api_key=key).search(
-            query=query,
-            search_depth=config.get("web", "search_depth", default="advanced"),
-            include_answer="advanced",
-            max_results=6,
-            # local questions ("term dates", "opening hours") answer badly
-            # against a global index
-            country=config.get("web", "country", default="new zealand"))
-    except Exception:
+    r, err = tavily_search(
+        query=query,
+        search_depth=config.get("web", "search_depth", default="advanced"),
+        include_answer="advanced",
+        max_results=6,
+        # local questions ("term dates", "opening hours") answer badly
+        # against a global index
+        country=config.get("web", "country", default="new zealand"))
+    if r is None:
         # `country` and advanced answers need a current client/plan; retry plain
-        try:
-            from tavily import TavilyClient
-            r = TavilyClient(api_key=key).search(
-                query=query, search_depth="basic", include_answer=True,
-                max_results=5)
-        except Exception:
-            return None
+        r, err = tavily_search(query=query, search_depth="basic",
+                               include_answer=True, max_results=5)
+    if r is None:
+        return None
 
     answer = (r.get("answer") or "").strip()
     passages = []

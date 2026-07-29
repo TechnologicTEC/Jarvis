@@ -585,32 +585,26 @@ def last_error() -> str:
 
 def _tavily_search(query: str, sites, time_range: str = "year"):
     from skills import web
-    key = web._tavily_key()
-    if not key:
-        _last_error["msg"] = "No Tavily API key set (web.tavily_api_key)."
+    # web.tavily_search rotates through every configured key, so one spent
+    # allowance falls through to the next rather than stopping the search.
+    r, err = web.tavily_search(
+        query=query, search_depth="advanced", max_results=20,
+        country="new zealand", include_domains=list(sites),
+        # bias to recent pages: boards keep years of dead adverts indexed
+        time_range=time_range,
+        # The year requirement lives in the posting body, not the snippet.
+        # Without the full page the eligibility filter had nothing to read
+        # and hid nothing at all — which is the whole point of this.
+        include_raw_content=True)
+    if r is None:
+        st = web.key_status()
+        if err and "credits used up" in err and st["total"] > 1:
+            _last_error["msg"] = (f"All {st['total']} Tavily keys are out of "
+                                  "credits — using keyless search instead.")
+        elif err:
+            _last_error["msg"] = err + " — using keyless search instead."
         return []
-    try:
-        from tavily import TavilyClient
-        r = TavilyClient(api_key=key).search(
-            query=query, search_depth="advanced", max_results=20,
-            country="new zealand", include_domains=list(sites),
-            # bias to recent pages: boards keep years of dead adverts indexed
-            time_range=time_range,
-            # The year requirement lives in the posting body, not the snippet.
-            # Without the full page the eligibility filter had nothing to read
-            # and hid nothing at all — which is the whole point of this.
-            include_raw_content=True)
-        return r.get("results") or []
-    except Exception as e:
-        name = type(e).__name__
-        if "UsageLimit" in name or "quota" in str(e).lower():
-            _last_error["msg"] = ("Tavily monthly credits are used up — "
-                                  "using keyless search instead.")
-        elif "Invalid" in name or "401" in str(e):
-            _last_error["msg"] = "Tavily rejected the API key."
-        else:
-            _last_error["msg"] = f"Search failed — {name}"
-        return []
+    return r.get("results") or []
 
 
 def _ddgs_jobs(query: str, sites):
@@ -770,21 +764,14 @@ def _save_careers(data: dict):
 def _career_search(company: str):
     """Look at the company's own site, not just the boards."""
     from skills import web
-    key = web._tavily_key()
-    if not key:
-        return []
-    try:
-        from tavily import TavilyClient
-        r = TavilyClient(api_key=key).search(
-            query=f"{company} careers internship software engineering "
-                  f"New Zealand student 2026 apply",
-            # basic depth here: this runs across many companies, and the
-            # advanced tier costs double per search
-            search_depth="basic", max_results=5, country="new zealand",
-            include_raw_content=True)
-        return r.get("results") or []
-    except Exception:
-        return []
+    r, _err = web.tavily_search(
+        query=f"{company} careers internship software engineering "
+              f"New Zealand student 2026 apply",
+        # basic depth here: this runs across many companies, and the
+        # advanced tier costs double per search
+        search_depth="basic", max_results=5, country="new zealand",
+        include_raw_content=True)
+    return (r.get("results") or []) if r else []
 
 
 def companies_due(known, limit):

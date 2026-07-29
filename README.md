@@ -28,11 +28,25 @@ every code change while the app is still growing.
 
 ### Startup order
 
-The window goes on screen first; everything slow follows behind it. Measured
-from launch: **window visible and usable in ~1s**, wake word listening about
-12s later. Setups are read from a JSON file, so the launcher works the moment
-the window paints — which is the point, since that's what you reach for at
-login.
+Autostart is a **scheduled task**, not a Startup-folder shortcut. Explorer runs
+Startup-folder items last and staggers them behind the registry `Run` keys, so
+with a dozen other startup programs (OneDrive, Discord, Grammarly, MathWorks…)
+Jarvis was taking about a minute to appear — nearly all of it spent waiting to
+be launched at all, not starting up. An "at log on" task fires immediately:
+**1.3s from trigger to a usable window**, measured.
+
+The window goes on screen first; everything slow follows behind it. Setups are
+read from a JSON file, so the launcher answers in 0.000s — the moment the
+window paints you can hit Chill, which is the whole point at login.
+
+The heavy work then waits `ui.defer_heavy_seconds` (default 20) before starting
+— Whisper, the wake model, the stock connection. None of it is needed to click
+a setup, and at login it would otherwise be fighting every other startup
+program for the disk. Expect the wake word about 30s after login rather than
+10s; that's a deliberate trade for the window appearing sooner.
+
+`jarvis.log` records the moment the process starts, so a slow login can be told
+apart from a slow Jarvis.
 
 Getting there meant fixing what the freshly-opened window itself was waiting
 on. Two calls it makes on boot were quietly blocking the bridge:
@@ -270,7 +284,19 @@ are exactly what the grounding step runs short of. When it answers directly
 the local model is skipped entirely: measured **2.3–2.7s** with a key against
 **7.9s** without.
 
-> **Put the key in `config/settings.local.json`, never `config/settings.json`.**
+**More than one key.** `web.tavily_api_keys` takes a list, and Jarvis moves to
+the next when one runs out of credits — the free tier is small enough that a
+month of use can exhaust it:
+
+```json
+{ "web": { "tavily_api_keys": ["tvly-first...", "tvly-second..."] } }
+```
+
+A key that reports exhausted (or Forbidden, which is how the free tier
+sometimes refuses) is set aside and retried after six hours, since allowances
+reset monthly. `web.tavily_api_key` still works for a single key.
+
+> **Put keys in `config/settings.local.json`, never `config/settings.json`.**
 > The latter is committed and this repo is public. `settings.local.json` is
 > gitignored, is layered over the tracked file at load time, and is where
 > `set_setting()` automatically routes anything whose name looks like a secret.

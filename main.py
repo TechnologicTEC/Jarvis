@@ -92,7 +92,13 @@ def _after_start(show_full_now: bool):
 
 
 def _background_init():
-    """Everything that can make you wait, done after the window is usable."""
+    """Everything that can make you wait, done after the window is usable.
+
+    The heavy parts (Whisper, the wake model, the stock connection) wait a
+    little longer still: at login they'd otherwise be competing for the disk
+    with every other startup program, which is exactly when you want the window
+    responsive so you can hit a setup.
+    """
     global TRAY, HOTKEY
     started = time.time()
 
@@ -106,6 +112,12 @@ def _background_init():
     windows.HOTKEY_OK = HOTKEY.start()
     if not windows.HOTKEY_OK:
         log("global hotkey unavailable (keyboard hook failed) - use the tray menu")
+
+    # Give the rest of the login rush a head start before loading models and
+    # opening network connections. Nothing below is needed to click a setup.
+    quiet = float(config.get("ui", "defer_heavy_seconds", default=20) or 0)
+    if quiet > 0:
+        time.sleep(quiet)
 
     # Load Whisper now, in the background, so the first Alt-to-talk doesn't
     # pay the ~5s model load. Costs ~300MB resident for the whole session -
@@ -178,6 +190,10 @@ def _start_inbox_poller():
 
 
 def main():
+    # Stamped first so the log distinguishes "Jarvis was slow" from "Windows
+    # started Jarvis late" — with a dozen startup items competing, the second
+    # is usually the real story.
+    log(f"starting (python up at +{time.process_time():.1f}s cpu)")
     ap = argparse.ArgumentParser()
     ap.add_argument("--tray", action="store_true", help="start hidden in the tray")
     args = ap.parse_args()
