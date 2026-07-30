@@ -262,15 +262,29 @@ _ELSEWHERE = re.compile(
     r"singapore|london|new york|san francisco|bangalore|india|manila)\b", re.I)
 
 
-def location_ok(text: str) -> bool:
+def location_ok(text: str, title: str = "") -> bool:
     """Auckland, or remote — and not somewhere else wearing an NZ label.
 
     "New Zealand" alone used to pass, which let Wellington and Hamilton roles
     through, and NZ job feeds carry plenty of Sydney and Melbourne postings.
-    Auckland (or explicit remote) now has to be named, and it has to out-rank
-    any other place mentioned.
+    Auckland (or explicit remote) has to be named.
+
+    The title wins when the two disagree. Matching Auckland anywhere in the
+    body used to be enough, but board pages name every office a company has —
+    a Gallagher role titled "in Hamilton, Waikato" passed because Auckland
+    appeared further down, and so did a BCG internship titled "Australia". The
+    title carries the actual work location, so a title that names another city
+    and not Auckland is a rejection regardless of what the body says.
     """
-    blob = text or ""
+    head = title or ""
+    if _AUCKLAND.search(head):
+        return True
+    if _ELSEWHERE.search(head):
+        return False
+
+    # No location in the title: fall back to the advert body, minus the
+    # "similar jobs" furniture, which lists other cities' roles.
+    blob = _posting_only(text or "")
     here = bool(_AUCKLAND.search(blob))
     remote = bool(_REMOTE.search(blob))
     other = bool(_ELSEWHERE.search(blob))
@@ -656,7 +670,16 @@ def _search_all(queries, sites):
     _last_error["msg"] = ""
 
     def go(q, window):
-        hits = _tavily_search(q, sites, time_range=window)
+        # A thread that dies takes its error with it: `out` stays empty, no
+        # message is recorded, and the fallback below sees nothing wrong. That
+        # is how a bad key setting turned into a silent "no jobs found".
+        try:
+            hits = _tavily_search(q, sites, time_range=window)
+        except Exception as e:
+            with lock:
+                _last_error["msg"] = (f"Search failed — {type(e).__name__}"
+                                      " — using keyless search instead.")
+            return
         with lock:
             out.extend(hits)
 
@@ -672,9 +695,12 @@ def _search_all(queries, sites):
     for t in threads:
         t.join(timeout=45)
 
-    # Tavily unavailable (no key, or the allowance is gone): fall back to the
-    # keyless search rather than pretending there are no jobs.
-    if not out and _last_error["msg"]:
+    # Nothing came back: try the keyless search before reporting no jobs.
+    # This used to require _last_error to be set, which meant any failure that
+    # didn't record a message — a crashed thread, say — skipped the fallback
+    # and returned an empty list as though the boards were bare. An empty
+    # result is the one outcome worth spending a few extra seconds to confirm.
+    if not out:
         for q in queries[:3]:
             out.extend(_ddgs_jobs(q, sites))
     return out
@@ -877,7 +903,7 @@ def search(force: bool = False, max_results: int = 25) -> dict:
                 continue
             if not looks_like_internship(body) or not looks_relevant(body):
                 continue
-            if not location_ok(body):
+            if not location_ok(body, title):
                 continue
 
             parsed = _parse_title(title, url)

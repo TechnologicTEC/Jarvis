@@ -78,9 +78,20 @@ $action = New-ScheduledTaskAction -Execute $pyw -Argument ('"' + $main + '"') -W
 $trigger = New-ScheduledTaskTrigger -AtLogOn -User "$env:USERDOMAIN\$env:USERNAME"
 $settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries `
     -StartWhenAvailable -ExecutionTimeLimit ([TimeSpan]::Zero) -MultipleInstances IgnoreNew
+
+# Priority 4 = NORMAL_PRIORITY_CLASS. This matters more than it looks.
+#
+# New-ScheduledTaskSettingsSet defaults to priority 7, which Windows maps to
+# BELOW_NORMAL for both CPU and disk I/O. At login that put Jarvis behind
+# OneDrive, Discord, Grammarly and MathWorks for every page it needed to read,
+# and Python's startup is thousands of small reads: 17s to get through the
+# imports on a cold cache, against ~1s warm. Levels 4-6 are NORMAL; 7-8 are
+# BELOW_NORMAL; 9-10 are IDLE.
+$settings.Priority = 4
+
 Register-ScheduledTask -TaskName $taskName -Action $action -Trigger $trigger -Settings $settings `
     -Description 'Starts Jarvis at log on' -Force | Out-Null
-Write-Host "registered scheduled task '$taskName' (at log on, no delay)"
+Write-Host "registered scheduled task '$taskName' (at log on, no delay, normal priority)"
 
 Write-Host @"
 

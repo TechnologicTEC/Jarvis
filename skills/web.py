@@ -192,24 +192,30 @@ def weather(place: str = None, offset: int = 0) -> dict:
 def _tavily_keys() -> list:
     """Every configured key, in order of preference.
 
-    Accepts `tavily_api_keys` (a list) as well as the original single
-    `tavily_api_key`, so a second free-tier key can take over when the first
-    month's credits run out.
+    Both setting names take either shape — one key or a list of them. The
+    plural name reads better with several, but putting the list under the
+    singular `tavily_api_key` is the obvious thing to try, and it used to raise
+    AttributeError on the .strip() below. That killed the search threads before
+    they could record an error, so the keyless fallback never fired and a
+    perfectly reasonable config looked exactly like "there are no jobs".
+    Whatever shape it finds, it flattens.
     """
     keys = []
-    many = config.get("web", "tavily_api_keys", default=None)
-    if isinstance(many, str):
-        many = [many]
-    for k in (many or []):
-        k = str(k).strip()
+
+    def add(value):
+        if value is None:
+            return
+        if isinstance(value, (list, tuple, set)):
+            for v in value:
+                add(v)
+            return
+        k = str(value).strip()
         if k and k not in keys:
             keys.append(k)
-    one = (config.get("web", "tavily_api_key", default="") or "").strip()
-    if one and one not in keys:
-        keys.append(one)
-    env = os.environ.get("TAVILY_API_KEY", "").strip()
-    if env and env not in keys:
-        keys.append(env)
+
+    add(config.get("web", "tavily_api_keys", default=None))
+    add(config.get("web", "tavily_api_key", default=None))
+    add(os.environ.get("TAVILY_API_KEY"))
     return keys
 
 
@@ -253,8 +259,16 @@ def tavily_search(**kwargs):
 
     Returns (result, error). Callers get a normal result if *any* key works,
     so a spent key is invisible rather than a dead end.
+
+    Nothing raises out of here. Callers run this on worker threads and treat a
+    falsy result as "fall back to the keyless search"; an escaping exception
+    instead killed the thread with no error recorded, which read as "no results
+    found" — the one answer that is never safe to give by accident.
     """
-    keys = usable_keys()
+    try:
+        keys = usable_keys()
+    except Exception as e:
+        return None, f"Search misconfigured — {type(e).__name__}"
     if not keys:
         return None, "No Tavily API key set (web.tavily_api_key)."
     last_err = ""

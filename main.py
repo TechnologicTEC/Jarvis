@@ -8,13 +8,16 @@ import os
 import threading
 import time
 
-import pystray
 import webview
-from PIL import Image, ImageDraw
 
 from api import JarvisApi
 from core import config, single_instance, windows
 from core.hotkey_listener import HotkeyListener
+
+# pystray and PIL are imported inside _build_tray(), not here. They are only
+# needed by the tray icon, which already runs after the window is on screen,
+# and on a cold cache every import is thousands of small disk reads competing
+# with the rest of the login. Nothing above is optional; those two were.
 
 TRAY = None
 HOTKEY = None
@@ -47,6 +50,7 @@ def log(msg: str):
 
 def _tray_image():
     """Use the real app icon so the tray matches the shortcuts."""
+    from PIL import Image, ImageDraw
     ico = os.path.join(os.path.dirname(os.path.abspath(__file__)), "assets", "jarvis.ico")
     if os.path.isfile(ico):
         try:
@@ -66,6 +70,7 @@ def _quit(icon, _item):
 
 
 def _build_tray():
+    import pystray
     menu = pystray.Menu(
         pystray.MenuItem("Open Jarvis", lambda i, it: windows.show("full"), default=True),
         pystray.MenuItem("Pin to corner", lambda i, it: windows.show("compact")),
