@@ -18,7 +18,6 @@
   },
   "jobs": {
     "cache_hours": 6,
-    "companies_file": "c:\\Users\\you\\Documents\\Jarvis\\Software_Combined_Database.xlsx",
     "poll_hours": 0
   },
   "web": {
@@ -34,13 +33,10 @@
     "chrome": "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe"
   },
   "stocks": {
-    "project_path": "C:\\Users\\you\\Documents\\StockProject\\Stock_Project",
-    "user_email": "user@example.com",
     "source": "live",
     "readonly_database_url": ""
   },
   "inbox": {
-    "tracker_path": "C:\\Users\\you\\OneDrive\\Internships.xlsx",
     "poll_minutes": 45,
     "lookback_days": 21
   },
@@ -56,16 +52,6 @@
     "compact_position": "centre",
     "pin_compact": false,
     "full_maximised": true,
-    "open_full_on_start": true,
-    "quick_files": [
-      {
-        "label": "Tech_CV.pdf",
-        "path": "C:\\Users\\you\\OneDrive\\Tech_CV.pdf"
-      },
-      {
-        "label": "Internships.xlsx",
-        "path": "C:\\Users\\you\\OneDrive\\Internships.xlsx"
-      }
-    ]
+    "open_full_on_start": true
   }
 }

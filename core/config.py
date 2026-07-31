@@ -12,6 +12,13 @@ LOCAL_PATH = os.path.join(BASE, "config", "settings.local.json")
 SECRET_KEYS = ("api_key", "apikey", "token", "password", "secret",
                "credential", "client_secret")
 
+# Not secret, but nobody else's business either. Absolute paths carry a
+# Windows username, and a synced OneDrive folder is usually named after an
+# employer or university; an address is an address. These sat in the tracked
+# file because they aren't credentials — the repo is public, so they were
+# published all the same. Treated like secrets from here on.
+PRIVATE_KEYS = ("email", "_path", "_file", "quick_files")
+
 
 def _read(path) -> dict:
     try:
@@ -77,7 +84,7 @@ def _atomic_write(path: str, data: dict) -> None:
 
 
 def save(data: dict) -> None:
-    """Write the shared settings file, with secrets stripped.
+    """Write the shared settings file, with secrets and personal details stripped.
 
     load() merges settings.local.json on top, so the natural-looking
     `save(load())` would copy the local file's secrets straight into the
@@ -88,7 +95,7 @@ def save(data: dict) -> None:
     for section, values in data.items():
         if isinstance(values, dict):
             cleaned[section] = {k: v for k, v in values.items()
-                                if not _is_secret(k)}
+                                if not _is_private(k)}
         else:
             cleaned[section] = values
     _atomic_write(SETTINGS_PATH, cleaned)
@@ -98,10 +105,18 @@ def _is_secret(key: str) -> bool:
     return any(s in str(key).lower() for s in SECRET_KEYS)
 
 
+def _is_private(key: str) -> bool:
+    """Secret, or merely nobody else's business. Both stay out of the repo."""
+    k = str(key).lower()
+    return (any(s in k for s in SECRET_KEYS)
+            or any(s in k for s in PRIVATE_KEYS))
+
+
 def set_value(section: str, key: str, value) -> dict:
-    """Write a setting. Secrets go to the gitignored local file so they can't
-    be committed; everything else to the shared settings.json."""
-    if _is_secret(key):
+    """Write a setting. Secrets and personal details go to the gitignored local
+    file so they can't be committed; everything else to the shared
+    settings.json."""
+    if _is_private(key):
         return set_local(section, key, value)
     data = _read(SETTINGS_PATH)
     data.setdefault(section, {})
