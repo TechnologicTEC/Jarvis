@@ -708,7 +708,12 @@ body.compact,body.compact html{background:transparent!important;overflow:hidden}
           var st=(x.status||'').replace(/_/g,'').trim();
           var col=/reject/i.test(st)?'#c98a9b':(/offer|interview|replied/i.test(st)?'#7fae8c':'#6f81b5');
           html+='<div class="jv-row" style="display:flex;align-items:center;gap:14px;padding:11px 16px">'
-            +'<div style="width:150px;font:500 13px/1.2 \'Space Grotesk\',sans-serif;color:#eef4ff;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+esc(x.company)+'</div>'
+            +'<div style="width:150px;overflow:hidden">'
+              +'<div style="font:500 13px/1.2 \'Space Grotesk\',sans-serif;color:#eef4ff;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+esc(x.company)+'</div>'
+              // the title is what tells six Navico rows apart; without it they
+              // are six identical lines and you cannot see which replied
+              +(x.role?'<div style="margin-top:3px;font:400 10px/1.25 \'JetBrains Mono\',monospace;color:#8794c4;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="'+esc(x.role)+'">'+esc(x.role)+'</div>':'')
+            +'</div>'
             +'<div style="width:132px;font:400 11px/1 \'JetBrains Mono\',monospace;color:#c4cfee">'+esc(x.stage||'—')+'</div>'
             +'<div style="width:118px;font:400 11px/1 \'JetBrains Mono\',monospace;color:'+col+'">'+esc(st||'awaiting')+'</div>'
             +'<div style="flex:1;font:400 10.5px/1 \'JetBrains Mono\',monospace;color:#6f81b5">'+esc(x.location||'')+'</div>'

@@ -24,6 +24,11 @@ _backed_up = False
 # loosely rather than demanding exact spelling.
 _COL_ALIASES = {
     "company": ("company", "employer", "organisation", "organization"),
+    # What the application was FOR. Several applications to one company is
+    # normal — six to Navico here — and without this they are indistinguishable
+    # rows that all answer to the same name.
+    "role": ("internship title", "role", "title", "position", "job title",
+             "internship", "job", "role title"),
     "stage": ("stage",),
     "status": ("status",),
     "date": ("dated submitted", "date submitted", "date", "submitted"),
@@ -87,7 +92,7 @@ def read_applications() -> dict:
                 return "" if v is None else str(v).strip()
 
             out.append({
-                "row": i, "company": str(company).strip(),
+                "row": i, "company": str(company).strip(), "role": val("role"),
                 "stage": val("stage"), "status": val("status"),
                 "date": val("date"), "location": val("location"),
             })
@@ -106,19 +111,56 @@ def _norm(s: str) -> str:
 
 
 def find_company(name: str):
-    """Match a company name from an email to a tracker row, loosely."""
+    """Every tracker row for a company, loosely matched — exact names first.
+
+    Returns a list, because one company routinely means several applications.
+    It used to return the first row it found, which silently wrote a reply from
+    one Navico role onto whichever of the six happened to sit highest.
+    """
     target = _norm(name)
     if not target:
-        return None
+        return []
     apps = read_applications().get("applications", [])
-    for a in apps:
-        if _norm(a["company"]) == target:
-            return a
-    for a in apps:
-        c = _norm(a["company"])
-        if c and (c in target or target in c):
-            return a
-    return None
+    exact = [a for a in apps if _norm(a["company"]) == target]
+    if exact:
+        return exact
+    return [a for a in apps
+            if _norm(a["company"]) and (_norm(a["company"]) in target
+                                        or target in _norm(a["company"]))]
+
+
+def find_application(company: str, role: str = ""):
+    """One row, or an explanation of why it can't be narrowed to one.
+
+    Returns (row, candidates). A row means it is safe to write. Otherwise
+    candidates lists what it was torn between, so the caller can ask rather
+    than guess — writing the wrong row is worse than writing nothing.
+    """
+    rows = find_company(company)
+    if not rows:
+        return None, []
+    if len(rows) == 1:
+        return rows[0], rows
+
+    hint = _norm(role)
+    if hint:
+        exact = [a for a in rows if _norm(a["role"]) == hint]
+        if len(exact) == 1:
+            return exact[0], rows
+        partial = [a for a in rows
+                   if _norm(a["role"]) and (hint in _norm(a["role"])
+                                            or _norm(a["role"]) in hint)]
+        if len(partial) == 1:
+            return partial[0], rows
+
+    # Several rows and nothing to tell them apart.
+    return None, rows
+
+
+def describe(app) -> str:
+    """'Navico Group — Software Intern' when the role is known."""
+    role = (app.get("role") or "").strip()
+    return f"{app['company']} — {role}" if role else app["company"]
 
 
 def _backup(path: str):
@@ -134,17 +176,39 @@ def _backup(path: str):
         pass  # a failed backup must not block the user's explicit request
 
 
-def update_stage(company: str, stage: str = None, status: str = None) -> dict:
-    """Set Stage/Status on an existing company row. Explicit action only."""
+def update_stage(company: str, stage: str = None, status: str = None,
+                 role: str = None, row: int = None) -> dict:
+    """Set Stage/Status on one application. Explicit action only.
+
+    `role` picks between several applications to the same company; `row` names
+    one outright, which is what the UI sends once you've chosen.
+    """
     path = tracker_path()
     if not path or not os.path.isfile(path):
         return {"ok": False, "reply": "No tracker configured — set inbox.tracker_path"}
 
-    hit = find_company(company)
-    if not hit:
+    if row:
+        apps = read_applications().get("applications", [])
+        hit = next((a for a in apps if a["row"] == int(row)), None)
+        if not hit:
+            return {"ok": False, "reply": f"No application on row {row}"}
+        candidates = [hit]
+    else:
+        hit, candidates = find_application(company, role or "")
+
+    if not hit and not candidates:
         known = ", ".join(companies()[:6]) or "none"
         return {"ok": False,
                 "reply": f"No row for “{company}” in the tracker (have: {known})"}
+    if not hit:
+        # Ambiguous. Say so and hand back the options rather than writing to
+        # whichever row sorted first — a wrong row is silent and hard to spot.
+        opts = "; ".join(f"row {a['row']}: {(a['role'] or '(no title)')}"
+                         for a in candidates)
+        return {"ok": False, "ambiguous": True,
+                "candidates": candidates,
+                "reply": f"{len(candidates)} applications to {company} — "
+                         f"which one? {opts}"}
 
     try:
         import openpyxl
@@ -174,7 +238,8 @@ def update_stage(company: str, stage: str = None, status: str = None) -> dict:
         wb.close()
 
     return {"ok": True, "company": hit["company"], "row": hit["row"],
-            "reply": f"Logged {hit['company']}: " + ", ".join(changed)}
+            "role": hit.get("role", ""),
+            "reply": f"Logged {describe(hit)}: " + ", ".join(changed)}
 
 
 def summary() -> dict:

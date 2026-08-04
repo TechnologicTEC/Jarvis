@@ -135,6 +135,10 @@ def authorize() -> dict:
         return {"ok": False, "reply": f"Gmail authorisation failed — {e}"}
 
 
+class NeedsReauth(Exception):
+    """The saved token can't be refreshed — only consent will fix it."""
+
+
 def _service():
     from google.auth.transport.requests import Request
     from google.oauth2.credentials import Credentials
@@ -142,7 +146,23 @@ def _service():
 
     creds = Credentials.from_authorized_user_file(TOKEN_PATH, SCOPES)
     if not creds.valid and creds.expired and creds.refresh_token:
-        creds.refresh(Request())
+        try:
+            creds.refresh(Request())
+        except Exception as e:
+            # invalid_grant means the refresh token itself is dead, not
+            # merely expired. Google issues refresh tokens that die after
+            # SEVEN DAYS while the OAuth consent screen is still in "Testing"
+            # — which is why this reappears about weekly. Publishing the app
+            # (Google Cloud Console -> Audience -> Publish app) stops it.
+            # Nothing here can recover it; the user has to consent again.
+            if "invalid_grant" in str(e).lower():
+                raise NeedsReauth(
+                    "Gmail needs reconnecting — Google expires the login after "
+                    "7 days while the OAuth app is in Testing. Click Connect "
+                    "Gmail. To stop it recurring, publish the app in Google "
+                    "Cloud Console (APIs & Services -> OAuth consent screen)."
+                ) from e
+            raise
         with open(TOKEN_PATH, "w", encoding="utf-8") as f:
             f.write(creds.to_json())
     return build("gmail", "v1", credentials=creds, cache_discovery=False)
@@ -294,6 +314,11 @@ def check_replies(max_results=40) -> dict:
                 "reply": f"{top['company']} {top['outcome']}"
                          + (f" (+{more} more)" if more else "")
                          + " — say “log it” to update the tracker"}
+    except NeedsReauth as e:
+        # A dead token is a one-click fix, so say that instead of showing the
+        # raw OAuth error, which reads like a fault in Jarvis.
+        return {"ok": False, "error": "needs_reauth", "hits": [],
+                "needs_reauth": True, "reply": str(e)}
     except Exception as e:
         return {"ok": False, "error": str(e), "hits": [],
                 "reply": f"Gmail check failed — {str(e).splitlines()[0][:110]}"}
@@ -338,9 +363,13 @@ def log_it(hit: dict = None) -> dict:
             return {"ok": False, "intent": "mail",
                     "reply": "Nothing pending — ask “any replies” first."}
         hit = _pending[0]
+    # `row` wins when the UI has already resolved which application this is;
+    # otherwise the role narrows several applications to one company.
     res = excel_sync.update_stage(
         hit.get("company"), stage=hit.get("suggested_stage"),
-        status=hit.get("suggested_status"))
+        status=hit.get("suggested_status"),
+        role=hit.get("role") or hit.get("subject") or "",
+        row=hit.get("row"))
     if res.get("ok"):
         _pending = [p for p in _pending
                     if p.get("company") != hit.get("company")]
