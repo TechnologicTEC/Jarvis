@@ -29,16 +29,38 @@ TOKEN_PATH = os.path.join(BASE, "config", "gmail_token.json")
 _OUTCOMES = [
     ("offer", r"\b(pleased to offer|offer of employment|we'd like to offer|"
               r"we would like to offer|job offer|formal offer)\b"),
-    ("interview", r"\b(interview|meet with|schedule a (?:call|chat|time)|"
-                  r"next (?:steps|stage|round)|shortlist(?:ed)?|"
-                  r"assessment|coding challenge|hackerrank|codility)\b"),
+    # An actual invitation, not any mention of the word. This used to include
+    # a bare "interview" and "next steps" — and "Next Steps:" is a heading in
+    # almost every acknowledgement email, which is exactly how a "Thanks for
+    # Applying!" receipt from ASB got logged as an interview.
+    ("interview", r"\b(invit(?:e|ing|ation) (?:you )?(?:to|for)|"
+                  r"we(?:'d| would) like to (?:interview|meet|speak|chat)|"
+                  r"(?:like to )?schedule (?:an? )?(?:interview|call|chat|time)|"
+                  r"book (?:a )?(?:time|slot|interview)|"
+                  r"your interview|interview (?:with|on|is|has been)|"
+                  r"progress(?:ed|ing)? to (?:the )?(?:next (?:stage|round)|interview)|"
+                  r"shortlisted|assessment (?:centre|center|invitation)|"
+                  r"coding challenge|hackerrank|codility|"
+                  r"complete (?:an? )?(?:online )?(?:test|assessment))\b"),
     ("rejected", r"\b(unfortunately|regret to inform|not (?:be )?(?:progress|proceed)\w*|"
                  r"unsuccessful|not selected|decided not to|other candidates|"
                  r"will not be moving forward)\b"),
-    ("acknowledged", r"\b(received your application|thank you for applying|"
+    # "Thanks for Applying" and "thank you for taking the time to apply" are
+    # the two commonest receipts there are, and neither matched the old
+    # wording, which demanded exactly "thank you for applying".
+    ("acknowledged", r"(received your application|"
                      r"application (?:has been )?received|we have received|"
-                     r"thanks for your interest)\b"),
+                     r"thank(?:s|\s+you)(?:\s+\w+){0,3}?\s+for\b"
+                     r"(?:\s+\w+){0,5}?\s+(?:apply(?:ing)?|application|interest))"),
 ]
+
+# Conditional framing. "If required, we may also email you a link to complete
+# online testing" describes what *might* happen, and is not an invitation to
+# anything. Judged over the sentence containing the match.
+_HEDGE = re.compile(
+    r"\b(if|should you|may|might|unless|in the event|where required|"
+    r"successful candidates|those selected|candidates who|"
+    r"shortlisted candidates|if you are|will be contacted)\b")
 
 _STAGE_FOR = {
     "offer": ("Offer", "Offer"),
@@ -196,6 +218,18 @@ def _norm(s: str) -> str:
     return re.sub(r"[^a-z0-9]", "", (s or "").lower())
 
 
+def _is_hedged(text: str, pos: int) -> bool:
+    """Is the sentence containing this match conditional rather than actual?"""
+    start = max(text.rfind(".", 0, pos), text.rfind("\n", 0, pos),
+                text.rfind(";", 0, pos)) + 1
+    end = len(text)
+    for ch in (".", "\n", ";"):
+        i = text.find(ch, pos)
+        if i != -1:
+            end = min(end, i)
+    return bool(_HEDGE.search(text[start:end]))
+
+
 def classify(sender: str, subject: str, snippet: str, companies) -> dict:
     """Match one message to a tracked company and an outcome.
 
@@ -240,10 +274,17 @@ def classify(sender: str, subject: str, snippet: str, companies) -> dict:
 
     outcome = None
     for name, pattern in _OUTCOMES:
-        if re.search(pattern, blob):
-            outcome = name
-            why.append(f"{name} wording")
-            break
+        m = re.search(pattern, blob)
+        if not m:
+            continue
+        # A promise about what may happen later is not the thing happening.
+        # Only the good-news outcomes need this: a rejection stated
+        # conditionally is still a rejection worth surfacing.
+        if name in ("interview", "offer") and _is_hedged(blob, m.start()):
+            continue
+        outcome = name
+        why.append(f"{name} wording")
+        break
 
     if outcome is None:
         return {"company": matched, "outcome": None, "confidence": 0.35,
