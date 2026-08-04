@@ -139,6 +139,22 @@ class NeedsReauth(Exception):
     """The saved token can't be refreshed — only consent will fix it."""
 
 
+def _retire_token():
+    """Move a revoked token aside so the app stops claiming to be connected.
+
+    Renamed rather than deleted: it costs nothing to keep, and a token file is
+    the sort of thing worth being able to look at afterwards.
+    """
+    try:
+        if os.path.isfile(TOKEN_PATH):
+            dead = TOKEN_PATH + ".revoked"
+            if os.path.exists(dead):
+                os.remove(dead)
+            os.replace(TOKEN_PATH, dead)
+    except Exception:
+        pass    # never let cleanup mask the real error
+
+
 def _service():
     from google.auth.transport.requests import Request
     from google.oauth2.credentials import Credentials
@@ -156,11 +172,15 @@ def _service():
             # (Google Cloud Console -> Audience -> Publish app) stops it.
             # Nothing here can recover it; the user has to consent again.
             if "invalid_grant" in str(e).lower():
+                # Google has revoked this refresh token; it will never work
+                # again. Setting it aside (rather than leaving it in place)
+                # makes is_authorized() report the truth, which is what puts
+                # the Connect button back. Leaving it meant the UI said
+                # "gmail connected" over a dead token, with no way to reconnect.
+                _retire_token()
                 raise NeedsReauth(
-                    "Gmail needs reconnecting — Google expires the login after "
-                    "7 days while the OAuth app is in Testing. Click Connect "
-                    "Gmail. To stop it recurring, publish the app in Google "
-                    "Cloud Console (APIs & Services -> OAuth consent screen)."
+                    "Gmail needs reconnecting — Google revoked the saved "
+                    "login. Click Connect Gmail to sign in again."
                 ) from e
             raise
         with open(TOKEN_PATH, "w", encoding="utf-8") as f:

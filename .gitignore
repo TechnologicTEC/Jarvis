@@ -21,5 +21,9 @@ Software_Combined_Database.xlsx
 
 # Google OAuth client + token, and tracker backups - never commit these
 config/gmail_credentials.json
-config/gmail_token.json
+# Wildcards, not exact names: a revoked token is set aside as
+# gmail_token.json.revoked, which an exact-match rule would not have caught.
+config/gmail_token.json*
+config/gmail_credentials*.json
+config/client_secret*.json
 *.jarvis-backup-*.xlsx
