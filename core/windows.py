@@ -410,9 +410,18 @@ def on_double_esc():
         show()
 
 
-def quit_all():
-    global QUITTING
+# Set by quit_all so main() knows to stop Ollama and Everything on the way
+# out. Deliberately not done here: taskkill takes a second or two, and doing it
+# before destroy() leaves the window sitting on screen looking like a hang. The
+# window goes first, the tidying up happens after it has gone.
+STOP_DEPS_ON_EXIT = False
+
+
+def quit_all(stop_deps: bool = False):
+    """Close Jarvis, and optionally what it relies on."""
+    global QUITTING, STOP_DEPS_ON_EXIT
     QUITTING = True
+    STOP_DEPS_ON_EXIT = bool(stop_deps)
     if WIN is not None:
         try:
             WIN.destroy()

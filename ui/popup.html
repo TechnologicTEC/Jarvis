@@ -115,7 +115,7 @@ body.compact,body.compact html{background:transparent!important;overflow:hidden}
 <div style="display:flex;align-items:center;gap:12px">
 <div id="jv-clock" style="font:400 11px/1 'JetBrains Mono',monospace;color:#c4cfee">Tue 21:04</div>
 <div id="jv-shrink" class="jv-tog" title="pin to corner (double-space)" style="font:400 11px/1 'JetBrains Mono',monospace;color:#93a2d0;border:1px solid rgba(150,180,235,.22);border-radius:7px;padding:6px 9px">&#9109;</div>
-<div id="jv-close" class="jv-tog" title="hide to tray (double-Esc)" style="font:400 11px/1 'JetBrains Mono',monospace;color:#93a2d0;border:1px solid rgba(150,180,235,.22);border-radius:7px;padding:6px 10px">&#10005;</div>
+<div id="jv-close" class="jv-tog" title="quit Jarvis, Ollama and Everything (double-Esc hides instead)" style="font:400 11px/1 'JetBrains Mono',monospace;color:#93a2d0;border:1px solid rgba(150,180,235,.22);border-radius:7px;padding:6px 10px">&#10005;</div>
 </div>
 </div>
 <div style="display:flex;align-items:center;gap:12px;padding:16px 26px 0">
@@ -879,7 +879,15 @@ body.compact,body.compact html{background:transparent!important;overflow:hidden}
         .catch(function(){});});
     paintPin();
     var closeBtn=document.getElementById('jv-close');
-    if(closeBtn)closeBtn.addEventListener('click',function(){var a=api();if(a&&a.hide_window)a.hide_window();});
+    // X quits for real — Jarvis, Ollama and Everything. Hiding to the tray is
+    // still there on double-Esc and in the tray menu, which is where someone
+    // who wants it will look; the button that looks like "close" now closes.
+    if(closeBtn)closeBtn.addEventListener('click',function(){
+      var a=api();if(!a)return;
+      closeBtn.textContent='…';
+      if(a.quit_app)a.quit_app();
+      else if(a.hide_window)a.hide_window();
+    });
 
     // compact: route + launch reuse the full view's handlers
     function jcRoute(q){q=(q||'').trim();if(!q)return;jc.input.value='';var a=api();

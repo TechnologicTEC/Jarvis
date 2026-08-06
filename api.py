@@ -97,6 +97,22 @@ class JarvisApi:
         windows.hide()
         return {"ok": True}
 
+    def quit_app(self):
+        """The X button: end Jarvis and what it started.
+
+        Runs on a worker thread because destroy() ends the webview loop, and
+        doing that from inside a js_api call kills the bridge mid-reply — the
+        UI then hangs waiting for a response that can never arrive.
+        """
+        import threading
+
+        def go():
+            time.sleep(0.15)      # let this call return first
+            windows.quit_all(stop_deps=True)
+
+        threading.Thread(target=go, daemon=True).start()
+        return {"ok": True, "reply": "Closing Jarvis…"}
+
     def open_full(self):
         windows.show("full")
         return {"ok": True}

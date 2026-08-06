@@ -65,7 +65,9 @@ def _tray_image():
 
 
 def _quit(icon, _item):
-    windows.quit_all()  # destroys windows -> webview.start() returns in main()
+    # Same as the X button: two menu entries both called "quit" doing
+    # different amounts of quitting is its own small trap.
+    windows.quit_all(stop_deps=True)  # destroys windows -> webview.start() returns
     icon.stop()
 
 
@@ -223,6 +225,15 @@ def main():
             HOTKEY.stop()
         if TRAY is not None:
             TRAY.stop()
+        # After the window has gone, so closing feels instant even though
+        # taskkill takes a moment.
+        if windows.STOP_DEPS_ON_EXIT:
+            try:
+                from core import shutdown
+                for image, what in shutdown.stop_dependencies().items():
+                    log(f"on quit: {image} — {what}")
+            except Exception as e:
+                log(f"on quit: stopping dependencies failed — {str(e)[:100]}")
         single_instance.release()
 
 

@@ -130,6 +130,27 @@ window to hug the card exactly, so there is no dead border around it.
   actions. The "+ New" card / `__new` menu item opens this file. `%VAR%` env
   vars are expanded in paths.
 - `config/settings.json` — hotkey timing, Ollama model/url, chrome/es.exe paths.
+- `ui.quit_stops` — what the X button closes besides Jarvis itself. Defaults to
+  `["ollama", "everything"]`; set it to `[]` to leave them running.
+
+### Closing
+
+The X button quits: Jarvis, and whatever `ui.quit_stops` names. Hiding to the
+tray is still there on double-Esc and in the tray menu — the button that looks
+like "close" now closes, which is what everyone expects it to do.
+
+The window is destroyed first and the dependencies stopped after, so closing
+feels instant even though taskkill takes a second or two. Each result goes to
+`jarvis.log`.
+
+Everything usually can't be stopped this way, and that's not a bug: it installs
+as a **LocalSystem service** in session 0, so an unelevated process can't touch
+it — not with taskkill, and not with Everything's own `-exit`, because Windows
+blocks messages from a normal process to a higher-integrity one. It reports
+"needs admin to stop" and moves on. It's a service rather than an app, it costs
+almost nothing idle, and it's what makes file search instant. Disabling the
+Everything service in its own options would let Jarvis close it — at the price
+of Everything needing to run elevated itself.
 
 ## Status (build order from the spec)
 
