@@ -411,6 +411,7 @@ def on_double_esc():
 
 
 # Set by quit_all so main() knows to stop Ollama and Everything on the way
+# out (see core/deps.py).
 # out. Deliberately not done here: taskkill takes a second or two, and doing it
 # before destroy() leaves the window sitting on screen looking like a hang. The
 # window goes first, the tidying up happens after it has gone.

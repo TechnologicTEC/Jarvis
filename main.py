@@ -98,6 +98,14 @@ def _after_start(show_full_now: bool):
     threading.Thread(target=_background_init, daemon=True).start()
 
 
+def _ensure_ollama() -> str:
+    try:
+        from core import deps
+        return deps.ensure_started()
+    except Exception as e:
+        return f"failed — {str(e)[:80]}"
+
+
 def _background_init():
     """Everything that can make you wait, done after the window is usable.
 
@@ -125,6 +133,13 @@ def _background_init():
     quiet = float(config.get("ui", "defer_heavy_seconds", default=20) or 0)
     if quiet > 0:
         time.sleep(quiet)
+
+    # Ollama, if it isn't already up. Since the X button now stops it, without
+    # this a single quit-and-reopen would leave the local model gone for the
+    # rest of the session. On its own thread: launching it and waiting for the
+    # API to bind takes a few seconds, and nothing below depends on it.
+    threading.Thread(
+        target=lambda: log(f"ollama: {_ensure_ollama()}"), daemon=True).start()
 
     # Load Whisper now, in the background, so the first Alt-to-talk doesn't
     # pay the ~5s model load. Costs ~300MB resident for the whole session -
@@ -229,8 +244,8 @@ def main():
         # taskkill takes a moment.
         if windows.STOP_DEPS_ON_EXIT:
             try:
-                from core import shutdown
-                for image, what in shutdown.stop_dependencies().items():
+                from core import deps
+                for image, what in deps.stop_dependencies().items():
                     log(f"on quit: {image} — {what}")
             except Exception as e:
                 log(f"on quit: stopping dependencies failed — {str(e)[:100]}")

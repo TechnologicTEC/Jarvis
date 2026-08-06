@@ -132,6 +132,9 @@ window to hug the card exactly, so there is no dead border around it.
 - `config/settings.json` — hotkey timing, Ollama model/url, chrome/es.exe paths.
 - `ui.quit_stops` — what the X button closes besides Jarvis itself. Defaults to
   `["ollama", "everything"]`; set it to `[]` to leave them running.
+- `llm.autostart` — start Ollama with Jarvis if it isn't already up. Default
+  true. The other half of the X button stopping it: without this, quitting once
+  would leave the local model gone for the rest of the session.
 
 ### Closing
 
@@ -142,6 +145,11 @@ like "close" now closes, which is what everyone expects it to do.
 The window is destroyed first and the dependencies stopped after, so closing
 feels instant even though taskkill takes a second or two. Each result goes to
 `jarvis.log`.
+
+Ollama is started again on the next launch (`llm.autostart`), on its own thread
+after the deferred init, so it costs nothing at login: measured 2.5s from cold
+to the API answering, and it waits for the port to bind rather than assuming
+"process exists" means ready. Already running is a 0.2s no-op.
 
 Everything usually can't be stopped this way, and that's not a bug: it installs
 as a **LocalSystem service** in session 0, so an unelevated process can't touch

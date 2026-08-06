@@ -1,17 +1,17 @@
-"""Stopping the things Jarvis leans on, when Jarvis itself is closing.
+"""The lifecycle of the things Jarvis leans on: started with it, stopped with it.
 
-Jarvis is the reason Ollama and Everything are running for most of a session,
-so closing Jarvis and leaving them in the background just moves the chore. The
-X button ends the lot.
+Jarvis is the reason Ollama is running for most of a session, so closing Jarvis
+and leaving it in the background just moves the chore — the X button ends it.
+The other half of that bargain is starting it again, otherwise quitting Jarvis
+once leaves the local model unavailable for the rest of the session.
 
-Everything gets asked politely first: it holds a file index in memory and
-writes it out on a clean exit, so killing it outright makes the next start slow
-while it rebuilds. Ollama has nothing to save, but the same courtesy costs
-nothing.
+Processes get asked politely before being killed: a close request lets an app
+save its state on the way out.
 
-Turn any of it off with ui.quit_stops (a list) or by emptying it.
+  ui.quit_stops     what the X button closes    (default ollama, everything)
+  llm.autostart     start Ollama with Jarvis    (default true)
 """
-import os
+import shutil
 import subprocess
 import time
 
@@ -106,6 +106,59 @@ def apps_to_stop() -> list:
     if isinstance(names, str):
         names = [names]
     return [str(n).strip().lower() for n in (names or []) if str(n).strip()]
+
+
+def ollama_running() -> bool:
+    return is_running("ollama.exe") or is_running("ollama app.exe")
+
+
+def start_ollama(wait: float = 12.0) -> str:
+    """Start Ollama if it isn't up, and wait until it answers.
+
+    Launches the tray app rather than `ollama serve`: it is what the Startup
+    shortcut runs, it spawns the server itself, and it leaves the same tray
+    icon behind, so a session Jarvis started looks like one Windows started.
+
+    Returns a short description of what happened, for the log.
+    """
+    if ollama_running():
+        return "already running"
+
+    exe = shutil.which("ollama app.exe") or shutil.which("ollama")
+    if not exe:
+        return "not installed"
+    try:
+        # DETACHED_PROCESS: Ollama must outlive this call, and under pythonw
+        # an inherited handle would otherwise keep a console-less child tied
+        # to us. Nothing here reads its output.
+        subprocess.Popen([exe], creationflags=_NO_WINDOW | 0x00000008,
+                         stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                         stderr=subprocess.DEVNULL, close_fds=True)
+    except Exception as e:
+        return f"failed to launch — {type(e).__name__}"
+
+    # Running is not the same as ready: the API takes a moment to bind.
+    url = config.get("llm", "ollama_url", default="http://127.0.0.1:11434")
+    end = time.time() + wait
+    while time.time() < end:
+        time.sleep(0.5)
+        try:
+            import urllib.request
+            with urllib.request.urlopen(url, timeout=2):
+                return "started"
+        except Exception:
+            continue
+    return "started, not answering yet" if ollama_running() else "did not start"
+
+
+def ensure_started() -> str:
+    """Bring up what Jarvis needs, if the user wants that. Never raises."""
+    if not config.get("llm", "autostart", default=True):
+        return "autostart off"
+    try:
+        return start_ollama()
+    except Exception as e:
+        return f"error — {type(e).__name__}"
 
 
 def stop_dependencies() -> dict:
